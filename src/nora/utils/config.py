@@ -44,29 +44,47 @@ def configure_user_config():
     config_path = get_user_config_path()
     print(f"Let's configure your NoRA keys:\n")
 
-    notion_token = input("Enter your Notion integration token: ")
-    notion_papers_db_id = input("Enter your Notion Papers database ID: ")
-    notion_people_db_id = input("Enter your Notion People database ID: ")
-    notion_affiliations_db_id = input("Enter your Notion Affiliations database ID: ")
-    notion_venues_db_id = input("Enter your Notion Venues database ID: ")
-    notion_topics_db_id = input("Enter your Notion Topics database ID: ")
+    # Only ask for the keys of the backend actually being used: an
+    # Obsidian user has no Notion database to point at
+    backend = input(
+        "Where should NoRA write your papers? [notion/obsidian] (notion): ")
+    backend = backend.strip().lower() or "notion"
+    if backend not in ("notion", "obsidian"):
+        print(f"⚠️ Unknown backend '{backend}', defaulting to notion")
+        backend = "notion"
 
-    zotero_library_id = input("Enter your Zotero library ID (optional): ")
-    zotero_api_token = input("Enter your Zotero API token (optional): ")
+    user_cfg = {"backend": backend}
 
-    user_cfg = {
-        "notion": {
+    if backend == "notion":
+        notion_token = input("Enter your Notion integration token: ")
+        notion_papers_db_id = input("Enter your Notion Papers database ID: ")
+        notion_people_db_id = input("Enter your Notion People database ID: ")
+        notion_affiliations_db_id = input("Enter your Notion Affiliations database ID: ")
+        notion_venues_db_id = input("Enter your Notion Venues database ID: ")
+        notion_topics_db_id = input("Enter your Notion Topics database ID: ")
+
+        user_cfg["notion"] = {
             "token": notion_token,
             "papers_db_id": notion_papers_db_id,
             "people_db_id": notion_people_db_id,
             "affiliations_db_id": notion_affiliations_db_id,
             "venues_db_id": notion_venues_db_id,
             "topics_db_id": notion_topics_db_id,
-        },
-        "zotero": {
-            "library_id": zotero_library_id,
-            "api_token": zotero_api_token,
-        },
+        }
+    else:
+        obsidian_vault_path = input(
+            "Enter the path to your Obsidian vault: ")
+
+        user_cfg["obsidian"] = {
+            "vault_path": obsidian_vault_path,
+        }
+
+    zotero_library_id = input("Enter your Zotero library ID (optional): ")
+    zotero_api_token = input("Enter your Zotero API token (optional): ")
+
+    user_cfg["zotero"] = {
+        "library_id": zotero_library_id,
+        "api_token": zotero_api_token,
     }
 
     with open(config_path, "w") as f:

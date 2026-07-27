@@ -4,9 +4,9 @@ from pyzotero import zotero
 from omegaconf import OmegaConf
 from typing import List, Dict
 
+from nora.paper import Paper, format_author_name, normalize_abstract
 from nora.utils.venues import parse_venue
 from nora.parsers.arxiv import ArxivItem, ArxivQueryError
-from nora.parsers.notion import NotionLibrary
 from nora.utils.translation_server import *
 from nora.utils.zotero import *
 from nora.utils.keys import sanity_check_config
@@ -107,15 +107,6 @@ class ZoteroLibrary:
         if self.verbose:
             print(f"Found {len(ignored)} duplicate items")
 
-    def to_notion(self, cfg: OmegaConf, verbose: bool=True):
-        """Move all papers and authors in the Zotero library to Notion.
-        This may take a while...
-        """
-        for i, zitem in enumerate(self):
-            if verbose:
-                print(f"[{i + 1}/{len(self)}]", end=' ')
-            zitem.to_notion(cfg, verbose=verbose)
-
     def __len__(self):
         return len(self.items)
 
@@ -192,6 +183,11 @@ class ZoteroItem:
     def arxiv(self):
         if 'arxiv.org' in self.url:
             return self.url.split('/')[-1]
+
+    @property
+    def doi(self):
+        # The Zotero schema spells this field in capitals
+        return self.item['data'].get('DOI') or None
 
     @property
     def authors(self):
@@ -314,30 +310,28 @@ class ZoteroItem:
 
         return fallback_text
 
-    def to_notion(self, cfg: OmegaConf, verbose: bool=True):
-        """Move paper and authors to Notion. Takes a few seconds...
+    def to_paper(self):
+        """Convert to the source-agnostic representation consumed by the
+        sinks. This is the only place where the (firstName, lastName)
+        pairs returned by the Zotero API are joined into display names.
         """
-        if verbose:
-            print(f"⬆️ Uploading '{self.title}'...")
-
-        # First, create the paper and its properties
-        response = NotionLibrary(cfg).create_paper(
-            self.title,
-            authors=[f"{x[0]} {x[1]}" for x in self.authors],
+        return Paper(
+            title=self.title,
+            authors=[format_author_name(f, l) for f, l in self.authors],
+            abstract=normalize_abstract(self.abstract),
+            year=self.year,
+            venue=self.venue,
+            url=self.url,
             topics=self.tags,
             to_read=True,
-            abstract=self.abstract,
-            url=self.url,
-            year=self.year,
-            venue=self.venue)
-
-        # Second, create the blocks (free text) from the notes
-        if response is not None and self.notes is not None and self.notes != '':
-            paper_id = response.json()['id']
-            NotionLibrary(cfg).append_page_blocks(paper_id, self.notes)
-
-        if verbose:
-            print('✅ Done')
+            notes=self.notes or '',
+            notes_format='html',
+            doi=self.doi,
+            arxiv_id=self.arxiv,
+            item_type=self.type,
+            source='zotero',
+            source_id=self.key,
+            date_added=self.item['data'].get('dateAdded'))
 
     def __repr__(self):
         info = [

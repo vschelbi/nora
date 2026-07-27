@@ -159,7 +159,7 @@ class CustomDevelop(develop):
 # ───────────────────────────────────────────────
 setup(
     name="nora",
-    version="2.0.0",
+    version="2.1.0",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     include_package_data=True,

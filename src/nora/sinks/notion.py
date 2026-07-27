@@ -1,15 +1,16 @@
-import sys
 import time
 import requests
 import mistletoe
 from notional.parser import HtmlParser
 from omegaconf import OmegaConf
-from typing import Callable, List, Dict
+from typing import Callable, List, Dict, Optional
 
+from nora.paper import Paper
+from nora.sinks.base import Sink, SinkError, WriteResult, CREATED, SKIPPED
 from nora.utils.keys import sanity_check_config
 
 
-__all__ = ['NotionLibrary']
+__all__ = ['NotionLibrary', 'NotionSink']
 
 
 # The Notion API allows an average of 3 requests per second. Uploading a
@@ -49,8 +50,8 @@ class NotionLibrary:
     # TODO: automatically generate bibtex from notion (maybe parse arxiv first)
 
     # Time of the last request sent to the Notion API. Held on the class
-    # because NotionLibrary is instantiated on the fly in several
-    # places, while the rate limit applies to the integration as a whole
+    # because the rate limit applies to the Notion integration as a
+    # whole, rather than to a particular NotionLibrary instance
     _last_request_time = 0.
 
     def __init__(self, cfg: OmegaConf):
@@ -115,7 +116,9 @@ class NotionLibrary:
 
     @staticmethod
     def _fail(response: requests.Response):
-        """Describe a failed Notion API response and interrupt.
+        """Describe a failed Notion API response and raise. Callers
+        uploading many papers can catch this and carry on with the next
+        one, rather than losing the whole upload to a single bad item.
         """
         try:
             body = response.json()
@@ -124,10 +127,10 @@ class NotionLibrary:
         code = body.get('code', '')
         message = body.get('message', response.text[:500])
 
-        print(f"❌ Notion API error {response.status_code} ({code}): {message}")
+        error = f"Notion API error {response.status_code} ({code}): {message}"
         if code in NOTION_ERROR_HINTS:
-            print(f"👉 {NOTION_ERROR_HINTS[code]}")
-        sys.exit(1)
+            error += f"\n👉 {NOTION_ERROR_HINTS[code]}"
+        raise SinkError(error)
 
     def _relation_ids(
             self,
@@ -158,10 +161,16 @@ class NotionLibrary:
     def _get_pages(
             self,
             database_id: str,
+            name_property: str='Name',
             num: int=None,
             name_equals: str=None,
             name_contains: str=None):
         """Get pages from your Notion database.
+
+        The name of the title column is passed in rather than assumed:
+        users are free to rename it in their Notion databases, in which
+        case filtering on a hardcoded 'Name' would be rejected by the
+        API.
 
         credits: https://www.python-engineer.com/posts/notion-api-python
         """
@@ -175,12 +184,12 @@ class NotionLibrary:
         payload = {"page_size": num}
         if name_equals:
             payload['filter'] = {
-                "property": "Name",
+                "property": name_property,
                 "rich_text": {
                     "equals": name_equals}}
         elif name_contains:
             payload['filter'] = {
-                "property": "Name",
+                "property": name_property,
                 "rich_text": {
                     "contains": name_contains}}
         data = self._request('POST', url, json=payload).json()
@@ -194,30 +203,40 @@ class NotionLibrary:
 
         return results
 
-    def get_people(self, *args, **kwargs):
+    def get_people(self, **kwargs):
         """Get person pages from your Notion database.
         """
-        return self._get_pages(self.cfg.people_db_id, *args, **kwargs)
+        return self._get_pages(
+            self.cfg.people_db_id,
+            name_property=self.cfg.person_keys['name'], **kwargs)
 
-    def get_papers(self, *args, **kwargs):
+    def get_papers(self, **kwargs):
         """Get paper pages from your Notion database.
         """
-        return self._get_pages(self.cfg.papers_db_id, *args, **kwargs)
+        return self._get_pages(
+            self.cfg.papers_db_id,
+            name_property=self.cfg.paper_keys['name'], **kwargs)
 
-    def get_affiliations(self, *args, **kwargs):
+    def get_affiliations(self, **kwargs):
         """Get affiliation pages from your Notion database.
         """
-        return self._get_pages(self.cfg.affiliations_db_id, *args, **kwargs)
+        return self._get_pages(
+            self.cfg.affiliations_db_id,
+            name_property=self.cfg.affiliation_keys['name'], **kwargs)
 
-    def get_venues(self, *args, **kwargs):
+    def get_venues(self, **kwargs):
         """Get venue pages from your Notion database.
         """
-        return self._get_pages(self.cfg.venues_db_id, *args, **kwargs)
+        return self._get_pages(
+            self.cfg.venues_db_id,
+            name_property=self.cfg.venue_keys['name'], **kwargs)
 
-    def get_topics(self, *args, **kwargs):
+    def get_topics(self, **kwargs):
         """Get topic pages from your Notion database.
         """
-        return self._get_pages(self.cfg.topics_db_id, *args, **kwargs)
+        return self._get_pages(
+            self.cfg.topics_db_id,
+            name_property=self.cfg.topic_keys['name'], **kwargs)
 
     def get_page_blocks(self, page_id: str):
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
@@ -271,7 +290,7 @@ class NotionLibrary:
             to_read: bool=True,
             abstract: str=None,
             url: str=None,
-            year: str=None,
+            year: Optional[int]=None,
             venue: str=None):
 
         # Skip if paper already exists in the database
@@ -300,10 +319,9 @@ class NotionLibrary:
         data[self.cfg.paper_keys['to_read']] = {
             'status': {'name': 'Not started' if to_read else 'Done'}}
 
-        # Abstract
+        # Abstract. Line breaks and hyphenated splits have already been
+        # cleaned up by nora.paper.normalize_abstract
         if abstract is not None:
-            # Remove any line breaks
-            abstract = ' '.join(abstract.split('\n')).replace('- ', '')
             data[self.cfg.paper_keys['abstract']] = {
                 'rich_text': [
                     {'text': {'content': abstract[:self.cfg.max_text_length]}}]}
@@ -459,7 +477,40 @@ class NotionLibrary:
         return blocks
 
     def __repr__(self):
-        info = [
-            f"{key}={len(getattr(self, key))}"
-            for key in ['papers', 'people', 'affiliations', 'venues']]
-        return f"{self.__class__.__name__}({', '.join(info)})"
+        return f"{self.__class__.__name__}()"
+
+
+class NotionSink(Sink):
+
+    """Write papers to a set of interconnected Notion databases.
+    """
+
+    name = 'notion'
+
+    def __init__(self, cfg: OmegaConf):
+        super().__init__(cfg)
+        self.library = NotionLibrary(cfg)
+
+    def write(self, paper: Paper):
+        response = self.library.create_paper(
+            paper.title,
+            authors=paper.authors,
+            topics=paper.topics,
+            to_read=paper.to_read,
+            abstract=paper.abstract,
+            url=paper.url,
+            year=paper.year,
+            venue=paper.venue)
+
+        # create_paper returns None when a same-titled page already
+        # exists in the database
+        if response is None:
+            return WriteResult(SKIPPED, message="already in Notion")
+
+        page_id = response.json()['id']
+
+        # Create the blocks (free text) from the notes
+        if paper.notes:
+            self.library.append_page_blocks(page_id, paper.notes)
+
+        return WriteResult(CREATED, ref=page_id)

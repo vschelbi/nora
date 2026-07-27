@@ -1,12 +1,13 @@
 [project]
 name = "nora"
-version = "2.0.0"
-description = "NoRA Tools for scientific reading with Notion"
+version = "2.1.0"
+description = "NoRA Tools for scientific reading with Notion or Obsidian"
 authors = [{ name = "Damien Robert", email = "damien.robert@uzh.ch" }]
 requires-python = ">=3.9"
 dependencies = [
     "psutil",
     "omegaconf",
+    "pyyaml",
     "click",
     "requests",
     "arxiv",
@@ -15,11 +16,18 @@ dependencies = [
     "pyrootutils",
     "pyzotero",
     "mistletoe",
+    "markdownify",
     "rapidfuzz",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
 [project.scripts]
 nora = "nora.utils.cli:cli"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["setuptools>=61", "wheel"]

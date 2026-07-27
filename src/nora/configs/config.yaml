@@ -1,5 +1,9 @@
 verbose: True
 
+# Where NoRA writes the papers it retrieves: 'notion' or 'obsidian'. Can
+# be overridden per command with `nora url <url> --to obsidian`
+backend: notion
+
 notion:
     # See https://developers.notion.com/docs/create-a-notion-integration
     token: ???
@@ -38,6 +42,71 @@ notion:
 
     # Not supposed to be edited
     max_text_length: 2000
+
+obsidian:
+    # Path to your Obsidian vault. It will be created if it does not exist
+    vault_path: ???
+
+    # Subfolders of the vault, one per NoRA database. Created if missing
+    folders:
+        papers: 'Papers'
+        people: 'People'
+        affiliations: 'Affiliations'
+        venues: 'Venues'
+        topics: 'Topics'
+
+    # Name given to the note of a paper. Available fields: {title},
+    # {year}, {venue}, {first_author}, {authors}, {arxiv}, {doi}, {citekey}
+    filename_template: '{title}'
+    max_filename_length: 180
+
+    # What to do when the note of a paper already exists. 'update'
+    # refreshes its properties and the NoRA-managed section, and
+    # preserves whatever you wrote around them. 'skip' leaves the note
+    # untouched, 'overwrite' replaces it entirely
+    on_existing: 'update'
+
+    # How authors, venues and topics are linked from a paper. 'path'
+    # links are unambiguous even when a topic and a venue share a name,
+    # 'short' ones are terser
+    link_style: 'path'
+
+    # Long abstracts clutter the Obsidian properties panel, so they are
+    # written in the body of the note by default
+    abstract_in_frontmatter: False
+
+    # Also record the key topics as Obsidian tags, alongside the links
+    topics_as_tags: False
+
+    # If you happen to modify your field names in Obsidian, update the
+    # following frontmatter keys
+    paper_keys:
+        name: 'title'
+        authors: 'authors'
+        abstract: 'abstract'
+        topics: 'topics'
+        url: 'url'
+        to_read: 'reading_status'
+        year: 'year'
+        venue: 'venue'
+        doi: 'doi'
+        arxiv: 'arxiv'
+
+    # Note that, unlike in Notion, the papers of an author need not be
+    # listed: Obsidian's backlinks already show every paper linking to them
+    person_keys:
+        name: 'name'
+        affiliations: 'affiliations'
+        website: 'website'
+
+    affiliation_keys:
+        name: 'name'
+
+    venue_keys:
+        name: 'name'
+
+    topic_keys:
+        name: 'name'
 
 zotero:
     # See your Zotero profile settings: https://www.zotero.org/settings/keys

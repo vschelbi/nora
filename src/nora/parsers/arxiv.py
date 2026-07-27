@@ -2,8 +2,8 @@ import re
 import arxiv
 from omegaconf import OmegaConf
 
+from nora.paper import Paper, normalize_abstract
 from nora.utils.venues import parse_venue
-from nora.parsers.notion import NotionLibrary
 
 
 __all__ = ['ArxivItem', 'ArxivQueryError']
@@ -109,6 +109,17 @@ class ArxivItem:
             self.id = results[0].entry_id.split('/')[-1].replace('.pdf', '')
             self._item = results[0]
 
+    @classmethod
+    def from_result(cls, result, cfg_venues: OmegaConf=None):
+        """Build an item from an already-retrieved arxiv result, without
+        querying the arxiv database again.
+        """
+        item = cls.__new__(cls)
+        item.cfg_venues = cfg_venues
+        item.id = result.entry_id.split('/')[-1].replace('.pdf', '')
+        item._item = result
+        return item
+
     @property
     def title(self):
         return self._item.title
@@ -151,30 +162,26 @@ class ArxivItem:
     def doi(self):
         return self._item.doi
 
-    def to_notion(self, cfg: OmegaConf, verbose: bool=True):
-        """Move paper and authors to Notion. Takes a few seconds...
+    def to_paper(self):
+        """Convert to the source-agnostic representation consumed by the
+        sinks.
         """
-        if verbose:
-            print(f"⬆️ Uploading '{self.title}'...")
-
-        # First, create the paper and its properties
-        response = NotionLibrary(cfg).create_paper(
-            self.title,
+        return Paper(
+            title=self.title,
             authors=self.authors,
+            abstract=normalize_abstract(self.abstract),
+            year=self.year,
+            venue=self.venue,
+            url=self.url,
             topics=[],
             to_read=True,
-            abstract=self.abstract,
-            url=self.url,
-            year=self.year,
-            venue=self.venue)
-
-        # Second, create the blocks (free text) from the notes
-        if response is not None and self.notes is not None:
-            paper_id = response.json()['id']
-            NotionLibrary(cfg).append_page_blocks(paper_id, self.notes)
-
-        if verbose:
-            print('✅ Done')
+            notes=self.notes or '',
+            notes_format='text',
+            doi=self.doi,
+            arxiv_id=self.id,
+            item_type='preprint',
+            source='arxiv',
+            source_id=self.id)
 
     def __repr__(self):
         info = [
