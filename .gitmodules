@@ -1,3 +1,0 @@
-[submodule "src/translation_server"]
-	path = src/translation_server
-	url = https://github.com/drprojects/translation_server

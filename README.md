@@ -140,16 +140,13 @@ If you want to extend NoRA-Tools to your need, you can install from source:
 
 ```bash
 # Get the source code
-git clone --recurse-submodules https://github.com/drprojects/nora
+git clone https://github.com/drprojects/nora
 
-# Install the python dependencies
+# Install the python dependencies. This also clones the pinned revision
+# of the translation server into src/nora/translation_server and
+# installs its node.js dependencies for you
 cd nora
 pip install -e .
-
-# Install the node.js server
-cd src/nora/translation_server
-npm install
-cd ../..
 ```
 </details>
 

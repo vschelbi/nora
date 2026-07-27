@@ -7,3 +7,6 @@ logs
 .ipynb_checkpoints
 .DS_Store
 .env
+src/nora/translation_server
+build
+src/nora.egg-info/
