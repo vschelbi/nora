@@ -1,5 +1,4 @@
 import re
-import sys
 import arxiv
 from omegaconf import OmegaConf
 
@@ -7,7 +6,14 @@ from nora.utils.venues import parse_venue
 from nora.parsers.notion import NotionLibrary
 
 
-__all__ = ['ArxivItem']
+__all__ = ['ArxivItem', 'ArxivQueryError']
+
+
+class ArxivQueryError(RuntimeError):
+    """Raised when the arxiv database could not be queried, or returned
+    no result. Callers only using arxiv to enrich already-known metadata
+    are expected to catch this and carry on.
+    """
 
 
 # Documentation: http://lukasschwab.me/arxiv.py/index.html
@@ -50,13 +56,12 @@ class ArxivItem:
 
             # Check whether arxiv id format before March 2007
             if not bool(re.search(r'[0-9]{4}\.[0-9]', arxiv_id)):
-                print(
-                    f"❌ The arxiv identifier '{arxiv_id}' does not follow the "
+                raise ArxivQueryError(
+                    f"The arxiv identifier '{arxiv_id}' does not follow the "
                     f"arxiv format defined for articles published after March "
                     f"2007. At the moment, only articles following this "
                     f"pattern are supported. Please refer to:"
                     f"https://info.arxiv.org/help/arxiv_identifier.html")
-                sys.exit(1)
 
             # Isolate the YYMM.NNNNN sequence
             arxiv_id = arxiv_id.split('/')[-1]
@@ -65,17 +70,26 @@ class ArxivItem:
             # possible to cover these cases as long as the article
             # came out after March 2007:
             # https://info.arxiv.org/help/arxiv_identifier.html
-            yymm, numbervv = arxiv_id.split(':')[-1].split('.')
-            expected_number_size = 5 if int(yymm) >= 1501 else 4
+            try:
+                yymm, numbervv = arxiv_id.split(':')[-1].split('.')
+                expected_number_size = 5 if int(yymm) >= 1501 else 4
+            except ValueError:
+                raise ArxivQueryError(
+                    f"The arxiv identifier '{arxiv_id}' could not be parsed")
             if len(numbervv) < expected_number_size:
                 numbervv += '0' * (expected_number_size - len(numbervv))
                 arxiv_id = f"{yymm}.{numbervv}"
 
             self.id = arxiv_id
-            results = list(CLIENT.results(arxiv.Search(id_list=[arxiv_id])))
+            try:
+                results = list(CLIENT.results(arxiv.Search(id_list=[arxiv_id])))
+            except Exception as e:
+                raise ArxivQueryError(
+                    f"Could not query the arxiv database for "
+                    f"id='{arxiv_id}': {e}")
             if len(results) == 0:
-                print(f"❌ Could not find paper with id='{arxiv_id}'")
-                sys.exit(1)
+                raise ArxivQueryError(
+                    f"Could not find paper with id='{arxiv_id}'")
             self._item = results[0]
             return
 
@@ -85,14 +99,13 @@ class ArxivItem:
                 sort_by=arxiv.SortCriterion.Relevance)))
             results = [res for res in results if title in res.title]
             if len(results) == 0:
-                print(f"❌ Could not find paper with title='{title}'")
-                sys.exit(1)
+                raise ArxivQueryError(
+                    f"Could not find paper with title='{title}'")
             if len(results) > 1:
-                msg = f"❌ Found multiple papers matching title='{title}'. " \
-                      f"Please refine among the following:\n" + \
-                      '\n'.join([res.title for res in results])
-                print(msg)
-                sys.exit(1)
+                raise ArxivQueryError(
+                    f"Found multiple papers matching title='{title}'. "
+                    f"Please refine among the following:\n" +
+                    '\n'.join([res.title for res in results]))
             self.id = results[0].entry_id.split('/')[-1].replace('.pdf', '')
             self._item = results[0]
 

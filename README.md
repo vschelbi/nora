@@ -66,6 +66,13 @@ from an identifier (DOI, ISBN, PMID, arXiv ID), exactly like with
 > versions such as `node 23` so we recommend making sure you use 
 > `node 20` for now. You can check your version by running `node -v`.
 
+> **Note**: NoRA installs the [Zotero translation server](https://github.com/zotero/translation-server)
+> at a pinned revision (`TRANSLATION_SERVER_REF` in `setup.py`), rather 
+> than at its latest revision. Upstream moved to `jsdom 29` in April 2026,
+> which requires `node >= 20.19` and otherwise fails to start with an 
+> `ERR_REQUIRE_ESM` error. If you are on `node >= 20.19` and want more 
+> recent translators, you can bump `TRANSLATION_SERVER_REF` and reinstall.
+
 ### Installing the template in Notion
 
 Simply duplicate the [NoRA template](https://silent-switch-780.notion.site/Template-research-library-286d3393a7e845c6a689a5c693790987) to your personal Notion account.

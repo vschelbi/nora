@@ -113,13 +113,25 @@ def start_server(patience: float=10, timestep: float=0.25):
 
     # Failed startup — dump logs for debugging
     print("\n❌ Translation server failed to start. Logs:")
+    logs = ''
     try:
-        print(_translation_process.stdout.read().decode())
-        print(_translation_process.stderr.read().decode())
+        logs = (
+            _translation_process.stdout.read().decode()
+            + _translation_process.stderr.read().decode())
+        print(logs)
     except Exception:
         pass
 
-    print("Failed to start translation server.")
+    # The most common cause is a translation server built against a
+    # newer jsdom than the local node can load
+    if 'ERR_REQUIRE_ESM' in logs:
+        print(
+            f"👉 Your translation server requires a more recent node than "
+            f"{get_node_version()}. Either install node >=20.19, or "
+            f"reinstall NoRA to get the pinned translation server revision:"
+            f"\n     pip install --force-reinstall "
+            f"git+https://github.com/drprojects/nora.git")
+
     sys.exit(1)
 
 
@@ -189,6 +201,12 @@ def json_to_python(data: Union[str, List, Dict]):
         sys.exit(1)
 
     if isinstance(data, list):
+        if len(data) == 0:
+            print(
+                "❌ The translation server could not extract any metadata "
+                "from this page. It may not be supported, or the page may "
+                "have refused the request.")
+            sys.exit(1)
         if isinstance(data[0], dict):
             data = data[0]
         else:
@@ -234,8 +252,12 @@ def translate_from_identifier(identifier: str, timeout: float=20):
     return json_to_python(out)
 
 
+def get_node_version():
+    return subprocess.check_output(["node", "-v"]).decode().strip()
+
+
 def check_node_version():
-    output = subprocess.check_output(["node", "-v"]).decode().strip()
+    output = get_node_version()
     major = int(output.replace('v', '').split(".")[0])
     if major > 20:
-        print(f"⚠️ Detected npm {major}. Please use npm 20.x for compatibility.")
+        print(f"⚠️ Detected node {major}. Please use node 20.x for compatibility.")

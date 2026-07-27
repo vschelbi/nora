@@ -33,6 +33,9 @@ notion:
     venue_keys:
         name: 'Name'
 
+    topic_keys:
+        name: 'Name'
+
     # Not supposed to be edited
     max_text_length: 2000
 

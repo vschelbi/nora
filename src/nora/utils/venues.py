@@ -1,6 +1,6 @@
 import re
 from typing import Union, Dict, Optional
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 from rapidfuzz import process, fuzz
 
 
@@ -20,8 +20,11 @@ def parse_venue(
     if text is None:
         return None
 
-    if isinstance(venues_dict, OmegaConf):
+    if isinstance(venues_dict, DictConfig):
         venues_dict = OmegaConf.to_container(venues_dict, resolve=True)
+
+    if not venues_dict:
+        return None
 
     # Normalize input text
     text_norm = text.lower()
@@ -42,10 +45,13 @@ def parse_venue(
 
     # Fuzzy matching fallback
     candidates = list(venues_dict.keys()) + list(venues_dict.values())
-    best, score, _ = process.extractOne(
+    match = process.extractOne(
         text_norm,
         candidates,
         scorer=fuzz.partial_ratio)
+    if match is None:
+        return None
+    best, score, _ = match
     if best is not None and score >= fuzzy_threshold:
         if best in venues_dict:
             return venues_dict[best]

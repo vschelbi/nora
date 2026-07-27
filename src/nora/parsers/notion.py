@@ -1,13 +1,38 @@
+import sys
+import time
 import requests
 import mistletoe
 from notional.parser import HtmlParser
 from omegaconf import OmegaConf
-from typing import List, Dict
+from typing import Callable, List, Dict
 
 from nora.utils.keys import sanity_check_config
 
 
 __all__ = ['NotionLibrary']
+
+
+# The Notion API allows an average of 3 requests per second. Uploading a
+# paper with many authors sends dozens of requests in a row, so we space
+# them out rather than waiting to be rate-limited
+NOTION_REQUEST_PERIOD = 1 / 3
+
+# Number of times a rate-limited or failing request is retried
+NOTION_MAX_RETRIES = 5
+
+# Hints helping the user fix the most common Notion API errors
+NOTION_ERROR_HINTS = {
+    'unauthorized':
+        "Check the `notion.token` in your ~/.nora/user.yaml.",
+    'restricted_resource':
+        "Give your Notion integration permission to access this database.",
+    'object_not_found':
+        "Check the database IDs in your ~/.nora/user.yaml and make sure your "
+        "Notion integration was given access to each database.",
+    'validation_error':
+        "Notion rejected the data. The fields of your NoRA databases may "
+        "differ from the `*_keys` in your ~/.nora/user.yaml.",
+}
 
 
 class NotionLibrary:
@@ -22,6 +47,11 @@ class NotionLibrary:
     """
 
     # TODO: automatically generate bibtex from notion (maybe parse arxiv first)
+
+    # Time of the last request sent to the Notion API. Held on the class
+    # because NotionLibrary is instantiated on the fly in several
+    # places, while the rate limit applies to the integration as a whole
+    _last_request_time = 0.
 
     def __init__(self, cfg: OmegaConf):
         keys = [
@@ -40,13 +70,90 @@ class NotionLibrary:
             "Notion-Version": "2022-06-28",
             "content-type": "application/json"}
 
+    @classmethod
+    def _throttle(cls):
+        """Space out consecutive requests to stay under the Notion API
+        rate limit.
+        """
+        elapsed = time.monotonic() - cls._last_request_time
+        if elapsed < NOTION_REQUEST_PERIOD:
+            time.sleep(NOTION_REQUEST_PERIOD - elapsed)
+        cls._last_request_time = time.monotonic()
+
+    def _request(self, method: str, url: str, **kwargs):
+        """Send a request to the Notion API. Rate limits and transient
+        server errors are retried, any other error interrupts the
+        program with a readable message rather than a traceback.
+        """
+        for attempt in range(NOTION_MAX_RETRIES):
+            self._throttle()
+            response = requests.request(
+                method, url, headers=self.headers, **kwargs)
+
+            if response.ok:
+                return response
+
+            # Notion tells us how long to wait when we are rate-limited
+            if response.status_code == 429:
+                delay = float(response.headers.get('Retry-After', 1))
+                print(f"⏳ Notion rate limit reached, retrying in {delay:g}s...")
+                time.sleep(delay)
+                continue
+
+            # Server-side errors are usually transient
+            if response.status_code >= 500:
+                delay = 2 ** attempt
+                print(
+                    f"⏳ Notion returned {response.status_code}, retrying in "
+                    f"{delay}s...")
+                time.sleep(delay)
+                continue
+
+            break
+
+        self._fail(response)
+
+    @staticmethod
+    def _fail(response: requests.Response):
+        """Describe a failed Notion API response and interrupt.
+        """
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        code = body.get('code', '')
+        message = body.get('message', response.text[:500])
+
+        print(f"❌ Notion API error {response.status_code} ({code}): {message}")
+        if code in NOTION_ERROR_HINTS:
+            print(f"👉 {NOTION_ERROR_HINTS[code]}")
+        sys.exit(1)
+
+    def _relation_ids(
+            self,
+            names: List[str],
+            getter: Callable,
+            creator: Callable):
+        """Recover the Notion page ids for a list of related items,
+        creating the missing pages along the way. The id of a newly
+        created page is read from the creation response, to avoid
+        searching the database for it again.
+        """
+        ids = []
+        for name in names:
+            name = name[:self.cfg.max_text_length]
+            item = getter(name_equals=name)
+            if len(item) > 0:
+                ids.append(item[0]['id'])
+                continue
+            ids.append(creator(name).json()['id'])
+        return ids
+
     def retrieve_page_from_id(self, page_id: str):
         """Directly retrieve a page from its id.
         """
         url = f"https://api.notion.com/v1/pages/{page_id}"
-        response = requests.get(url, headers=self.headers)
-        if response.text['object'] != 'error':
-            return response.json()
+        return self._request('GET', url).json()
 
     def _get_pages(
             self,
@@ -76,16 +183,13 @@ class NotionLibrary:
                 "property": "Name",
                 "rich_text": {
                     "contains": name_contains}}
-        response = requests.post(url, json=payload, headers=self.headers)
-        data = response.json()
+        data = self._request('POST', url, json=payload).json()
         results = data["results"]
 
         # If more is needed, read other chunks of 'num' pages
         while data["has_more"] and get_all:
             payload["start_cursor"] = data["next_cursor"]
-            response = requests.post(
-                url, json=payload, headers=self.headers)
-            data = response.json()
+            data = self._request('POST', url, json=payload).json()
             results.extend(data["results"])
 
         return results
@@ -116,15 +220,13 @@ class NotionLibrary:
         return self._get_pages(self.cfg.topics_db_id, *args, **kwargs)
 
     def get_page_blocks(self, page_id: str):
-        url = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size="
-        response = requests.get(url, headers=self.headers)
-        return response.json()["results"]
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+        return self._request('GET', url).json()["results"]
 
     def _create_page(self, database_id: str, data: dict):
         url = "https://api.notion.com/v1/pages"
         payload = {'parent': {'database_id': database_id}, 'properties': data}
-        response = requests.post(url, headers=self.headers, json=payload)
-        return response
+        return self._request('POST', url, json=payload)
 
     def create_person(
             self,
@@ -143,24 +245,14 @@ class NotionLibrary:
                 {'text': {'content': name}}]}}
 
         # Papers
-        paper_ids = []
-        for paper in papers:
-            item = self.get_papers(name_equals=paper)
-            if len(item) == 0:
-                self.create_paper(paper)
-                item = self.get_papers(name_equals=paper)
-            paper_ids.append(item[0]['id'])
+        paper_ids = self._relation_ids(
+            papers, self.get_papers, self.create_paper)
         data[self.cfg.person_keys['papers']] = {
             'relation': [{'id': x} for x in paper_ids]}
 
         # Affiliations
-        affiliation_ids = []
-        for affiliation in affiliations:
-            item = self.get_affiliations(name_equals=affiliation)
-            if len(item) == 0:
-                self.create_affiliation(affiliation)
-                item = self.get_affiliations(name_equals=affiliation)
-            affiliation_ids.append(item[0]['id'])
+        affiliation_ids = self._relation_ids(
+            affiliations, self.get_affiliations, self.create_affiliation)
         data[self.cfg.person_keys['affiliations']] = {
             'relation': [{'id': x} for x in affiliation_ids]}
 
@@ -193,26 +285,14 @@ class NotionLibrary:
                 {'text': {'content': name}}]}}
 
         # Authors
-        author_ids = []
-        for author in authors:
-            author = author[:self.cfg.max_text_length]
-            item = self.get_people(name_equals=author)
-            if len(item) == 0:
-                self.create_person(author)
-                item = self.get_people(name_equals=author)
-            author_ids.append(item[0]['id'])
+        author_ids = self._relation_ids(
+            authors, self.get_people, self.create_person)
         data[self.cfg.paper_keys['authors']] = {
             'relation': [{'id': x} for x in author_ids]}
 
         # Topic
-        topic_ids = []
-        for topic in topics:
-            topic = topic[:self.cfg.max_text_length]
-            item = self.get_topics(name_equals=topic)
-            if len(item) == 0:
-                self.create_topic(topic)
-                item = self.get_topics(name_equals=topic)
-            topic_ids.append(item[0]['id'])
+        topic_ids = self._relation_ids(
+            topics, self.get_topics, self.create_topic)
         data[self.cfg.paper_keys['topics']] = {
             'relation': [{'id': x} for x in topic_ids]}
 
@@ -239,14 +319,10 @@ class NotionLibrary:
 
         # Venue
         if venue is not None:
-            venue = venue[:self.cfg.max_text_length]
-            item = self.get_venues(name_equals=venue)
-            if len(item) == 0:
-                self.create_venue(venue)
-                item = self.get_venues(name_equals=venue)
-            venue_id = item[0]['id']
+            venue_ids = self._relation_ids(
+                [venue], self.get_venues, self.create_venue)
             data[self.cfg.paper_keys['venue']] = {
-                'relation': [{'id': venue_id}]}
+                'relation': [{'id': x} for x in venue_ids]}
 
         return self._create_page(self.cfg.papers_db_id, data)
 
@@ -279,7 +355,7 @@ class NotionLibrary:
         return self._create_page(self.cfg.venues_db_id, data)
 
     def create_topic(self, name: str):
-        # Skip if venue already exists in the database
+        # Skip if topic already exists in the database
         name = name[:self.cfg.max_text_length]
         if len(self.get_topics(name_equals=name)) > 0:
             print(f"ℹ️  Topic '{name}' already exists")
@@ -287,7 +363,7 @@ class NotionLibrary:
 
         # Prepare the Notion API json
         data = {
-            self.cfg.venue_keys['name']: {
+            self.cfg.topic_keys['name']: {
                 'title': [{'text': {'content': name}}]}}
 
         return self._create_page(self.cfg.topics_db_id, data)
@@ -308,14 +384,12 @@ class NotionLibrary:
         # Append text to page blocks
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
         payload = {'children': notion_text}
-        response = requests.patch(url, json=payload, headers=self.headers)
-        return response
+        return self._request('PATCH', url, json=payload)
 
     def _update_page(self, page_id: str, data: dict):
         url = f"https://api.notion.com/v1/pages/{page_id}"
         payload = {"properties": data}
-        response = requests.patch(url, json=payload, headers=self.headers)
-        return response
+        return self._request('PATCH', url, json=payload)
 
     def _flatten_block(
             self,

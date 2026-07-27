@@ -5,7 +5,7 @@ from omegaconf import OmegaConf
 from typing import List, Dict
 
 from nora.utils.venues import parse_venue
-from nora.parsers.arxiv import ArxivItem
+from nora.parsers.arxiv import ArxivItem, ArxivQueryError
 from nora.parsers.notion import NotionLibrary
 from nora.utils.translation_server import *
 from nora.utils.zotero import *
@@ -186,7 +186,7 @@ class ZoteroItem:
 
     @property
     def url(self):
-        return self.item['data']['url']
+        return self.item['data'].get('url', '')
 
     @property
     def arxiv(self):
@@ -304,9 +304,13 @@ class ZoteroItem:
         if venue is not None:
             return venue
 
-        # Search venue on arXiv
+        # Search venue on arXiv. This only enriches already-known
+        # metadata, so a failure here must not interrupt the upload
         if self.arxiv is not None and self.arxiv != '':
-            return ArxivItem(self.arxiv, cfg_venues=self.cfg_venues).venue
+            try:
+                return ArxivItem(self.arxiv, cfg_venues=self.cfg_venues).venue
+            except ArxivQueryError as e:
+                print(f"⚠️ Could not recover the venue from arxiv: {e}")
 
         return fallback_text
 
