@@ -1,10 +1,12 @@
 <div align="center">
 
-# NoRA - Notion Research Assistant 
+# NoRA - Notion/Obsidian Research Assistant
 
 [![python](https://img.shields.io/badge/-Python-blue?logo=python&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![node.js](https://img.shields.io/badge/Node.js-43853D?logo=node.js&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![license](https://img.shields.io/badge/License-MIT-green.svg?labelColor=gray)](https://github.com/ashleve/lightning-hydra-template#license)
+
+This repo is forked from [drprojects/nora][https://github.com/drprojects/nora].
 
 Keep track of the papers you read 📜, their authors 👤, your notes 📝, and more 🔥 —
 in **Notion** or in **Obsidian**
