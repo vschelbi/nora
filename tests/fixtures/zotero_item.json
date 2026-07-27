@@ -1,0 +1,39 @@
+{
+    "key": "ABCD1234",
+    "meta": {
+        "numChildren": 0
+    },
+    "data": {
+        "key": "ABCD1234",
+        "itemType": "conferencePaper",
+        "title": "A Synthetic Paper About Nothing",
+        "abstractNote": "This abstract was split over sev-\neral lines by a PDF ex-\ntractor.",
+        "url": "https://arxiv.org/abs/1706.03762",
+        "DOI": "10.1000/synthetic",
+        "date": "2019-06-15",
+        "dateAdded": "2019-07-01T09:00:00Z",
+        "proceedingsTitle": "Conference on Computer Vision and Pattern Recognition",
+        "creators": [
+            {
+                "creatorType": "author",
+                "firstName": "Ada",
+                "lastName": "Lovelace"
+            },
+            {
+                "creatorType": "author",
+                "firstName": "Alan",
+                "lastName": "Turing"
+            },
+            {
+                "creatorType": "author",
+                "name": "Some Institution"
+            }
+        ],
+        "tags": [
+            {
+                "tag": "TO READ"
+            }
+        ],
+        "collections": []
+    }
+}
