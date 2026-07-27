@@ -6,8 +6,8 @@
 [![node.js](https://img.shields.io/badge/Node.js-43853D?logo=node.js&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![license](https://img.shields.io/badge/License-MIT-green.svg?labelColor=gray)](https://github.com/ashleve/lightning-hydra-template#license)
 
-A Notion template to help you keep track of the papers you read 📜, their authors 👤, 
-your notes 📝, and more 🔥
+Keep track of the papers you read 📜, their authors 👤, your notes 📝, and more 🔥 —
+in **Notion** or in **Obsidian**
 
 **_If you ❤️ or simply use this project, don't forget to give the repository a ⭐,
 it means a lot to us !_**
@@ -17,14 +17,24 @@ it means a lot to us !_**
 
 ## 📌  Introduction
 
-This project was built as a [Notion](https://www.notion.so)-based alternative to 
-reference management software such as Zotero and Mendeley.
+This project was built as an alternative to reference management software such as 
+Zotero and Mendeley, on top of the note-taking app you already use.
 
 It is composed of the **NoRA Notion template** for you to build on top of, as 
 well as **NoRA-Tools** to programmatically:
 - 🔥 upload papers to your NoRA library as easily as with 
 [Zotero Connector](https://www.zotero.org/download/connectors) from a simple URL or an identifier
 - 🔥 move all your already-existing Zotero library to NoRA
+
+NoRA can write to two **backends**, which you pick with the `backend` key of your
+config or with `--to` on any command:
+
+| Backend | What you get |
+|---|---|
+| [`notion`](https://www.notion.so) | Five interconnected Notion databases, as in the NoRA template |
+| [`obsidian`](https://obsidian.md) | Markdown notes written straight into your vault, with `[[wikilinks]]` between papers, authors, venues and topics |
+
+Both produce the same metadata; see [choosing a backend](#choosing-where-nora-writes).
 
 ### 🧪  NoRA template
 
@@ -59,7 +69,8 @@ from an identifier (DOI, ISBN, PMID, arXiv ID), exactly like with
 - [Python](https://www.python.org/downloads) ≥ 3.9  
 - [pip](https://pip.pypa.io/en/stable/installation)
 - [Node.js](https://nodejs.org/en/download) ≥ 18 and ≤ 20  
-- [Notion](https://www.notion.com) account with API credentials
+- **either** a [Notion](https://www.notion.com) account with API credentials, 
+**or** an [Obsidian](https://obsidian.md) vault
 - (optional) [Zotero](https://www.zotero.org) account with API credentials
 
 > **Note**: We have experienced issues with too-recent `node.js` 
@@ -72,6 +83,9 @@ from an identifier (DOI, ISBN, PMID, arXiv ID), exactly like with
 > which requires `node >= 20.19` and otherwise fails to start with an 
 > `ERR_REQUIRE_ESM` error. If you are on `node >= 20.19` and want more 
 > recent translators, you can bump `TRANSLATION_SERVER_REF` and reinstall.
+
+> **Note**: The Notion and Obsidian sections below are alternatives — follow 
+> whichever matches the backend you intend to use, and skip the other.
 
 ### Installing the template in Notion
 
@@ -108,6 +122,78 @@ notion:
     topics_db_id: your_topics_database_id
 ````
 Keep these safe somewhere, we will need these in a bit!
+
+### Setting up your Obsidian vault
+
+Nothing to install: NoRA writes Markdown files straight into your vault, so no 
+community plugin is needed and Obsidian does not even have to be running. All 
+you need is the path to your vault:
+
+````yaml
+obsidian:
+    vault_path: /path/to/your/vault
+````
+
+NoRA creates one folder per NoRA database — `Papers`, `People`, `Affiliations`, 
+`Venues` and `Topics` — and links them together with `[[wikilinks]]`, so 
+Obsidian's **backlinks** and **graph view** give you the same relations as the 
+Notion databases: open an author's note and it lists every one of their papers.
+
+A paper note looks like this:
+
+````markdown
+---
+title: Attention Is All You Need
+authors:
+- '[[People/Ashish Vaswani|Ashish Vaswani]]'
+- '[[People/Noam Shazeer|Noam Shazeer]]'
+venue: '[[Venues/NeurIPS|NeurIPS]]'
+year: 2017
+topics:
+- '[[Topics/Transformers|Transformers]]'
+url: https://arxiv.org/abs/1706.03762
+arxiv: '1706.03762'
+doi:
+reading_status: Not started
+type: paper
+nora_id: arxiv:1706.03762
+---
+
+%% nora:start %%
+## Abstract
+
+The dominant sequence transduction models are based on ...
+
+## Notes
+
+- Multi-head attention lets the model attend to several subspaces
+
+[Open source](https://arxiv.org/abs/1706.03762)
+%% nora:end %%
+````
+
+Two things worth knowing:
+
+- **Your writing is safe.** Everything NoRA generates sits between the 
+`%% nora:start %%` and `%% nora:end %%` markers, which are Obsidian comments and 
+therefore invisible in reading view. Re-uploading a paper refreshes that block 
+and the properties it manages, and leaves anything you wrote around them — and 
+any property you added yourself — untouched.
+- **Renaming notes is fine.** Papers are recognized by the `nora_id` property 
+rather than by their filename, so you can rename a note, or change 
+`filename_template`, without NoRA creating a duplicate.
+
+Since the frontmatter is plain properties, you can rebuild the Notion table view 
+with [Bases](https://help.obsidian.md/bases) or Dataview:
+
+````
+```dataview
+TABLE year AS Year, venue AS Venue, authors AS Authors, reading_status AS Status
+FROM "Papers"
+WHERE type = "paper"
+SORT year DESC
+```
+````
 
 ### Getting your Zotero API keys (optional)
 
@@ -202,18 +288,84 @@ nora id 2204.07548
 nora zotero-upload
 ```
 
+### Choosing where NoRA writes
+
+`nora configure` asks which backend you want and only prompts for that one's 
+keys. You can change your mind at any time by editing your `~/.nora/user.yaml`:
+
+````yaml
+backend: obsidian   # or 'notion'
+````
+
+Any command also takes a `--to` flag, which overrides the config for that run — 
+handy to try Obsidian out, or to copy a paper into both:
+
+```bash
+nora url https://arxiv.org/abs/2204.07548 --to obsidian
+nora id 2204.07548 --to notion
+nora zotero-upload --to obsidian
+```
+
 ### Advanced usage
 
 You can further customize the behavior of NoRA-Tools by manually editing
 your personal config file located at `~/.nora/user.yaml`.
 
 <details>
+<summary><b>Customizing your Obsidian vault</b></summary>
+
+The `obsidian` section of your `~/.nora/user.yaml` controls how notes are 
+written:
+
+````yaml
+obsidian:
+    vault_path: /path/to/your/vault
+
+    # Subfolders of the vault, one per NoRA database. Created if missing
+    folders:
+        papers: 'Papers'
+        people: 'People'
+        affiliations: 'Affiliations'
+        venues: 'Venues'
+        topics: 'Topics'
+
+    # Name given to the note of a paper. Available fields: {title},
+    # {year}, {venue}, {first_author}, {authors}, {arxiv}, {doi}, {citekey}
+    filename_template: '{title}'
+    max_filename_length: 180
+
+    # What to do when the note of a paper already exists. 'update'
+    # refreshes its properties and the NoRA-managed section and preserves
+    # whatever you wrote around them, 'skip' leaves the note untouched,
+    # 'overwrite' replaces it entirely
+    on_existing: 'update'
+
+    # How authors, venues and topics are linked from a paper. 'path'
+    # links stay unambiguous even when a topic and a venue share a name,
+    # 'short' ones are terser
+    link_style: 'path'
+
+    # Long abstracts clutter the Obsidian properties panel, so they are
+    # written in the body of the note by default
+    abstract_in_frontmatter: False
+
+    # Also record the key topics as Obsidian tags, alongside the links
+    topics_as_tags: False
+````
+
+The frontmatter keys themselves are configurable too, under 
+`obsidian.paper_keys`, `obsidian.person_keys`, and so on — same idea as the 
+Notion field names below.
+
+</details>
+
+<details>
 <summary><b>Modifying database names in NoRA️</b></summary>
 
 By default, NoRA-Tools expect the attribute fields (e.g. column names in Notion)
 of your papers, people, etc. to have specific values. If you want to adjust 
-those, you can do so by overwriting the keys in your personal config file 
-`~/.nora/user.yaml`:
+those, you can do so by overwriting the keys in the `notion` section of your 
+personal config file `~/.nora/user.yaml`:
 
 ````yaml
 # If you happen to modify your field names in Notion, update the
@@ -273,7 +425,7 @@ your need and domain of research.
 
 <details>
 <summary><b>
-Skipping Zotero collections when migrating Zotero library to Notion</b></summary>
+Skipping Zotero collections when migrating your Zotero library</b></summary>
 
 By default, when calling `nora zotero-upload`, the `collections` (i.e. folders) 
 in your Zotero library will be used to populate the `Key Topics` field of 
@@ -284,6 +436,23 @@ zotero:
     ignored_collections: ['collection name 1', 'collection name 2']
 ````
 </details>
+
+<br>
+
+## 👩‍💻  Contributing
+
+The test suite needs no network, no Node.js and no credentials:
+
+```bash
+pip install pytest
+PYTHONPATH=src pytest
+```
+
+NoRA is organized around a single `Paper` record ([`src/nora/paper.py`](src/nora/paper.py)):
+the `parsers` produce one from a source (Zotero, arXiv), and the `sinks` write it 
+to a backend (Notion, Obsidian). The two never import each other, so adding a 
+backend means writing one `Sink` subclass and registering it in 
+[`src/nora/sinks/__init__.py`](src/nora/sinks/__init__.py).
 
 <br>
 
