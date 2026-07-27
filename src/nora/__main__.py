@@ -1,4 +1,4 @@
-from nora.utils.cli import cli_entry
+from nora.utils.cli import cli
 
 if __name__ == "__main__":
-    cli_entry()
+    cli()

@@ -7,7 +7,7 @@
 # https://www.zotero.org/support/kb/item_types_and_fields
 
 ZOTERO_SUPPORTED_TYPES = [
-    'blogPost'
+    'blogPost',
     'book',
     'bookSection',
     'conferencePaper',
