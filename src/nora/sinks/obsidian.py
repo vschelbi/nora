@@ -36,6 +36,10 @@ WINDOWS_RESERVED_NAMES = (
 MANAGED_START = '%% nora:start %%'
 MANAGED_END = '%% nora:end %%'
 
+# The link NoRA puts at the end of the managed region. It carries no
+# heading, so it is matched out of a region before the sections are split
+OPEN_SOURCE_LINK = re.compile(r'^\[Open source\]\((.*)\)[ \t]*$', re.MULTILINE)
+
 # Frontmatter key holding the identity of a paper. Filenames are allowed
 # to change - you may rename a note, or edit `filename_template` - so
 # they cannot be used to recognize an already-uploaded paper
@@ -110,10 +114,11 @@ class ObsidianLibrary:
         # A folder Obsidian has never opened has no .obsidian/, which is
         # perfectly fine for a vault NoRA creates first, so this is only
         # worth a warning
-        if not (self.vault / '.obsidian').exists():
+        if not self._inside_a_vault():
             print(
-                f"⚠️ '{self.vault}' does not look like an Obsidian vault "
-                f"(no .obsidian/ folder). Open it in Obsidian to use it")
+                f"⚠️ '{self.vault}' does not look like an Obsidian vault, "
+                f"nor a folder inside one (no .obsidian/ here or above). "
+                f"Open the vault in Obsidian to use it")
 
         # One folder per NoRA database
         for key in self._folder_keys():
@@ -126,6 +131,19 @@ class ObsidianLibrary:
     # ------------------------------------------------------------------
     #  Paths and note names
     # ------------------------------------------------------------------
+    def _inside_a_vault(self):
+        """Whether `vault_path` is a vault, or sits within one.
+
+        Only the root of a vault carries the `.obsidian` folder, so
+        pointing `vault_path` at a subfolder - a `NoRA/` keeping the
+        library out of the way of your other notes - has to be recognized
+        by looking upwards rather than by the absence of a marker here.
+        """
+        for folder in (self.vault, *self.vault.parents):
+            if (folder / '.obsidian').is_dir():
+                return True
+        return False
+
     def _folder_keys(self):
         """The folders NoRA writes into.
 
@@ -257,17 +275,48 @@ class ObsidianLibrary:
             return {}, text
 
     def _build_index(self):
-        """Map the NoRA id of every already-uploaded paper to its note.
+        """Map every identity of every already-uploaded paper to its note.
+
+        A note is indexed under its recorded `nora_id` and under the
+        identifiers it carries as properties, so that a paper is still
+        recognized once a re-upload knows a better identifier for it than
+        the one the note was created with.
         """
         index = {}
         folder = self._folder('papers')
         if not folder.is_dir():
             return index
+
+        keys = self.cfg.paper_keys
         for path in sorted(folder.glob('*.md')):
-            nora_id = self._read_frontmatter(path).get(ID_KEY)
-            if nora_id and nora_id not in index:
-                index[nora_id] = path
+            frontmatter = self._read_frontmatter(path)
+            doi = frontmatter.get(keys['doi'])
+            arxiv = frontmatter.get(keys['arxiv'])
+            ids = [
+                frontmatter.get(ID_KEY),
+                f"doi:{str(doi).strip().lower()}" if doi else None,
+                f"arxiv:{str(arxiv).strip().lower()}" if arxiv else None]
+            for nora_id in ids:
+                if nora_id and nora_id not in index:
+                    index[nora_id] = path
+
         return index
+
+    def _find_note(self, paper: Paper):
+        """The note of an already-uploaded paper, or None. Any identity the
+        paper is known by is enough to find it.
+        """
+        for nora_id in _nora_ids(paper):
+            path = self._index.get(nora_id)
+            if path is not None and path.exists():
+                return path
+        return None
+
+    def _register(self, paper: Paper, path: Path):
+        """Record a note under every identity of its paper.
+        """
+        for nora_id in _nora_ids(paper):
+            self._index[nora_id] = path
 
     # ------------------------------------------------------------------
     #  Writing
@@ -392,20 +441,35 @@ class ObsidianLibrary:
         for name in _wikilink_names(value):
             self.create_entity('projects', name, {'type': 'project'})
 
-    def paper_body(self, paper: Paper):
+    def paper_body(self, paper: Paper, previous: str=''):
         """Build the NoRA-managed part of a paper note.
+
+        `previous` is the managed region already in the note, if any. It is
+        what an upload that knows nothing of the abstract, the notes or the
+        source url falls back on, so that a paper re-uploaded from a
+        sparser source keeps what a richer one had found - the same reason
+        an empty property does not clear a populated one.
         """
+        # The link is matched out first, so that it is not swallowed into
+        # whichever section happens to precede it
+        link = OPEN_SOURCE_LINK.search(previous)
+        kept = self._managed_sections(OPEN_SOURCE_LINK.sub('', previous))
+
         sections = []
 
-        if paper.abstract and not self.cfg.abstract_in_frontmatter:
-            sections.append(f"## Abstract\n\n{paper.abstract}")
+        if not self.cfg.abstract_in_frontmatter:
+            abstract = paper.abstract or kept.get('Abstract')
+            if abstract:
+                sections.append(f"## Abstract\n\n{abstract}")
 
         notes = _notes_to_markdown(paper.notes, paper.notes_format)
+        notes = notes or kept.get('Notes')
         if notes:
             sections.append(f"## Notes\n\n{notes}")
 
-        if paper.url:
-            sections.append(f"[Open source]({paper.url})")
+        url = paper.url or (link.group(1) if link else None)
+        if url:
+            sections.append(f"[Open source]({url})")
 
         if not sections:
             return f"{MANAGED_START}\n{MANAGED_END}\n"
@@ -414,17 +478,47 @@ class ObsidianLibrary:
             f"{MANAGED_START}\n" + '\n\n'.join(sections)
             + f"\n{MANAGED_END}\n")
 
+    @staticmethod
+    def _managed_region(body: str):
+        """The text NoRA manages inside a note body, without its markers.
+        Empty for a note written by hand, which has no managed region.
+        """
+        start = body.find(MANAGED_START)
+        end = body.find(MANAGED_END)
+        if start == -1 or end <= start:
+            return ''
+        return body[start + len(MANAGED_START):end].strip('\n')
+
+    @staticmethod
+    def _managed_sections(managed: str):
+        """Split a managed region into its `## Heading` sections.
+        """
+        sections = {}
+        heading = None
+        lines = []
+        for line in managed.splitlines():
+            if line.startswith('## '):
+                if heading is not None:
+                    sections[heading] = '\n'.join(lines).strip('\n')
+                heading = line[3:].strip()
+                lines = []
+            else:
+                lines.append(line)
+        if heading is not None:
+            sections[heading] = '\n'.join(lines).strip('\n')
+        return sections
+
     def write_paper(self, paper: Paper):
         """Create the note of a paper, or refresh an already-existing
         one according to `on_existing`.
         """
-        nora_id = _nora_id(paper)
+        ids = _nora_ids(paper)
 
         # A paper already uploaded may since have been renamed, or the
-        # filename template may have changed, so the identity recorded
-        # in the frontmatter is what we search on first
-        path = self._index.get(nora_id)
-        if path is not None and path.exists():
+        # filename template may have changed, so the identities recorded
+        # in the frontmatter are what we search on first
+        path = self._find_note(paper)
+        if path is not None:
             return self._update_paper(paper, path)
 
         note_name = self._paper_note_name(paper)
@@ -434,7 +528,7 @@ class ObsidianLibrary:
         # Two distinct papers may legitimately share a title
         suffix = 1
         while path.exists():
-            if self._read_frontmatter(path).get(ID_KEY) == nora_id:
+            if self._read_frontmatter(path).get(ID_KEY) in ids:
                 return self._update_paper(paper, path)
             suffix += 1
             path = folder / f"{note_name} ({suffix}).md"
@@ -442,7 +536,7 @@ class ObsidianLibrary:
         self._write_atomic(
             path, self._compose(
                 self.paper_frontmatter(paper), self.paper_body(paper)))
-        self._index[nora_id] = path
+        self._register(paper, path)
 
         return WriteResult(CREATED, ref=str(path))
 
@@ -486,7 +580,7 @@ class ObsidianLibrary:
         frontmatter = {**frontmatter, **refreshed}
         self.create_linked_projects(frontmatter)
 
-        managed = self.paper_body(paper)
+        managed = self.paper_body(paper, self._managed_region(body))
         start = body.find(MANAGED_START)
         end = body.find(MANAGED_END)
         if start != -1 and end > start:
@@ -499,7 +593,7 @@ class ObsidianLibrary:
             body = f"{body.rstrip()}\n\n{managed}" if body.strip() else managed
 
         self._write_atomic(path, self._compose(frontmatter, body))
-        self._index[_nora_id(paper)] = path
+        self._register(paper, path)
 
         return WriteResult(UPDATED, ref=str(path))
 
@@ -603,12 +697,31 @@ def _nora_id(paper: Paper):
     """Stable identity of a paper, recorded in the frontmatter so that
     re-uploading recognizes it however its note has been renamed.
     """
+    return _nora_ids(paper)[0]
+
+
+def _nora_ids(paper: Paper):
+    """Every identity a paper may be known by, best first.
+
+    A preprint saved from the arXiv is `arxiv:...`, and gains a DOI once
+    it is published - which would make it a different paper, and earn it a
+    second note, if only the best identity were ever looked up. So a note
+    is indexed under all of these, and matching any one of them is enough
+    to recognize a paper you already have.
+    """
+    ids = []
     if paper.doi:
-        return f"doi:{paper.doi.strip().lower()}"
+        ids.append(f"doi:{paper.doi.strip().lower()}")
     if paper.arxiv_id:
-        return f"arxiv:{paper.arxiv_id.strip().lower()}"
-    slug = re.sub(r'[^\w]+', '-', (paper.title or '').lower()).strip('-')
-    return f"title:{slug}"
+        ids.append(f"arxiv:{paper.arxiv_id.strip().lower()}")
+
+    # A title is only ever an identity of last resort: two distinct papers
+    # may share one, so it is trusted only when there is nothing better
+    if not ids:
+        slug = re.sub(r'[^\w]+', '-', (paper.title or '').lower()).strip('-')
+        ids.append(f"title:{slug}")
+
+    return ids
 
 
 def _notes_to_markdown(notes: str, notes_format: str):

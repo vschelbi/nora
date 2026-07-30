@@ -143,6 +143,10 @@ obsidian:
     vault_path: /path/to/your/vault
 ````
 
+This may be a folder *inside* a vault rather than the vault root — 
+`/path/to/your/vault/NoRA` keeps the library out of the way of your other notes, 
+and works exactly the same.
+
 NoRA creates one folder per database it writes to — `Papers`, `People`, `Venues`, 
 `Topics` and `Projects` — and links them together with `[[wikilinks]]`, so 
 Obsidian's **backlinks** and **graph view** give you the same relations as the 
@@ -218,7 +222,9 @@ and the properties it manages, and leaves anything you wrote around them — and
 any property you added yourself — untouched.
 - **Renaming notes is fine.** Papers are recognized by the `nora_id` property 
 rather than by their filename, so you can rename a note, or change 
-`filename_template`, without NoRA creating a duplicate.
+`filename_template`, without NoRA creating a duplicate. A note is matched on any 
+identifier it carries, so a preprint that later gets published — gaining a DOI, 
+which NoRA prefers over an arXiv id — is still the same paper and keeps its note.
 - **Projects and the reading status are yours.** These two properties NoRA writes 
 once and never touches again, because no source it reads from knows which of your 
 projects a paper serves or whether you have read it. Re-uploading a paper you have 
@@ -228,7 +234,8 @@ marked `Done` leaves it `Done`. See
 properties the upload actually carries a value for. The arXiv reports no topics, so 
 re-uploading a paper from there leaves the topics you or a Zotero collection put on 
 it alone, rather than emptying them — and the same goes for a venue or a DOI that 
-one source knows and another does not.
+one source knows and another does not. The abstract, the notes and the source link 
+inside the managed region are kept the same way.
 
 Since the frontmatter is plain properties, you can rebuild the Notion table view 
 with [Bases](https://help.obsidian.md/bases) or Dataview:

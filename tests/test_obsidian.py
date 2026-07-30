@@ -435,6 +435,109 @@ def test_what_counts_as_an_empty_value(value, empty):
     assert _is_empty(value) is empty
 
 
+def test_a_preprint_that_gains_a_doi_is_the_same_paper(obsidian_cfg):
+    preprint = Paper(
+        title='Attention Is All You Need', arxiv_id='1706.03762', year=2017)
+    path = ObsidianSink(obsidian_cfg).write(preprint).ref
+
+    # Published a year later: it now has a DOI, which `_nora_id` prefers
+    # over the arXiv id. This used to be a different paper, and earned a
+    # second note
+    published = Paper(
+        title='Attention Is All You Need', arxiv_id='1706.03762',
+        doi='10.5555/wxyz', venue='NeurIPS', year=2017)
+    result = ObsidianSink(obsidian_cfg).write(published)
+
+    assert result.status == UPDATED
+    assert Path(result.ref) == Path(path)
+    assert len(list((Path(obsidian_cfg.vault_path) / 'Papers').glob('*.md'))) == 1
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    # And the note's recorded identity is upgraded to the better one
+    assert frontmatter[ID_KEY] == 'doi:10.5555/wxyz'
+    assert frontmatter['venue'] == '[[Venues/NeurIPS|NeurIPS]]'
+
+
+def test_a_paper_is_found_by_its_arxiv_id_after_the_doi_became_its_identity(
+        obsidian_cfg):
+    published = Paper(
+        title='Some Paper', arxiv_id='2204.07548', doi='10.1234/abcd')
+    path = ObsidianSink(obsidian_cfg).write(published).ref
+
+    # The other direction: a later upload knows only the arXiv id
+    result = ObsidianSink(obsidian_cfg).write(
+        Paper(title='Some Paper', arxiv_id='2204.07548'))
+
+    assert result.status == UPDATED
+    assert Path(result.ref) == Path(path)
+
+
+def test_an_upload_knowing_less_keeps_the_abstract_and_the_notes(obsidian_cfg):
+    rich = Paper(
+        title='Rich Then Sparse', arxiv_id='2204.07548',
+        abstract='The real abstract.', notes='A note I imported.',
+        url='https://arxiv.org/abs/2204.07548')
+    path = ObsidianSink(obsidian_cfg).write(rich).ref
+
+    # Re-uploaded from a source that has none of the three
+    ObsidianSink(obsidian_cfg).write(
+        Paper(title='Rich Then Sparse', arxiv_id='2204.07548'))
+
+    text = read(path)
+    assert 'The real abstract.' in text
+    assert 'A note I imported.' in text
+    assert '[Open source](https://arxiv.org/abs/2204.07548)' in text
+    # And no section got duplicated by being carried over
+    assert text.count('## Abstract') == 1
+    assert text.count('## Notes') == 1
+    assert text.count('[Open source]') == 1
+
+
+def test_an_upload_that_knows_the_abstract_still_refreshes_it(obsidian_cfg):
+    first = Paper(
+        title='Refreshed', arxiv_id='2204.07548', abstract='A stale abstract.')
+    path = ObsidianSink(obsidian_cfg).write(first).ref
+
+    ObsidianSink(obsidian_cfg).write(Paper(
+        title='Refreshed', arxiv_id='2204.07548',
+        abstract='The corrected abstract.'))
+
+    text = read(path)
+    assert 'The corrected abstract.' in text
+    assert 'A stale abstract.' not in text
+
+
+def test_carrying_a_region_over_survives_several_re_uploads(obsidian_cfg):
+    rich = Paper(
+        title='Round Trips', arxiv_id='2204.07548',
+        abstract='The abstract.', notes='The notes.',
+        url='https://example.org/paper')
+    path = ObsidianSink(obsidian_cfg).write(rich).ref
+    sparse = Paper(title='Round Trips', arxiv_id='2204.07548')
+
+    for _ in range(3):
+        ObsidianSink(obsidian_cfg).write(sparse)
+
+    text = read(path)
+    assert text.count('## Abstract') == 1
+    assert text.count('## Notes') == 1
+    assert text.count('[Open source]') == 1
+    assert 'The abstract.' in text and 'The notes.' in text
+
+
+def test_overwrite_does_not_carry_the_old_region_over(obsidian_cfg):
+    rich = Paper(
+        title='Wiped', arxiv_id='2204.07548', abstract='The abstract.')
+    path = ObsidianSink(obsidian_cfg).write(rich).ref
+
+    # 'overwrite' replaces the note entirely: that is its contract
+    obsidian_cfg.on_existing = 'overwrite'
+    ObsidianSink(obsidian_cfg).write(
+        Paper(title='Wiped', arxiv_id='2204.07548'))
+
+    assert 'The abstract.' not in read(path)
+
+
 def test_a_renamed_note_is_found_by_its_identity(obsidian_cfg, paper):
     original = Path(ObsidianSink(obsidian_cfg).write(paper).ref)
     renamed = original.with_name('I renamed this note.md')
@@ -509,6 +612,30 @@ def test_a_leftover_folder_in_the_config_is_ignored(cfg, tmp_path, paper):
     (vault / 'Affiliations').rmdir()
     ObsidianSink(cfg.obsidian).write(paper)
     assert not (vault / 'Affiliations').exists()
+
+
+def test_a_subfolder_of_a_vault_is_not_warned_about(cfg, tmp_path, paper, capsys):
+    # Keeping the library in its own folder, out of the way of the rest of
+    # your notes, is a normal setup. Only the vault root has .obsidian/
+    vault = tmp_path / 'vault'
+    (vault / '.obsidian').mkdir(parents=True)
+    cfg.obsidian.vault_path = str(vault / 'NoRA')
+
+    ObsidianSink(cfg.obsidian).write(paper)
+
+    assert 'does not look like' not in capsys.readouterr().out
+    assert (vault / 'NoRA' / 'Papers').is_dir()
+
+
+def test_a_folder_outside_any_vault_is_warned_about(cfg, tmp_path, capsys):
+    cfg.obsidian.vault_path = str(tmp_path / 'not-a-vault')
+
+    ObsidianLibrary(cfg.obsidian)
+
+    out = capsys.readouterr().out
+    assert 'does not look like' in out
+    # A warning, not a failure: NoRA can create a vault you then open
+    assert (tmp_path / 'not-a-vault' / 'Papers').is_dir()
 
 
 def test_a_vault_path_pointing_at_a_file_exits(cfg, tmp_path):

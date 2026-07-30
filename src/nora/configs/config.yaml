@@ -42,7 +42,9 @@ notion:
     max_text_length: 2000
 
 obsidian:
-    # Path to your Obsidian vault. It will be created if it does not exist
+    # Path to your Obsidian vault, or to a folder inside one if you would
+    # rather keep the library apart from your other notes. Created if
+    # it does not exist
     vault_path: ???
 
     # Subfolders of the vault, one per NoRA database. Created if missing.
@@ -64,7 +66,8 @@ obsidian:
     # refreshes its properties and the NoRA-managed section, and preserves
     # whatever you wrote around them. It leaves alone the things no source
     # can know - your reading status, your projects - and never clears a
-    # property the upload itself has no value for. 'skip' leaves the note
+    # property, an abstract or a note the upload itself has no value for.
+    # 'skip' leaves the note
     # untouched, 'overwrite' replaces it entirely
     on_existing: 'update'
 
