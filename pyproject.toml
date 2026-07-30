@@ -1,6 +1,6 @@
 [project]
 name = "nora"
-version = "2.1.0"
+version = "3.0"
 description = "NoRA Tools for scientific reading with Notion or Obsidian"
 authors = [{ name = "Damien Robert", email = "damien.robert@uzh.ch" }]
 requires-python = ">=3.9"
