@@ -5,7 +5,8 @@ from pathlib import Path
 from nora.paper import Paper
 from nora.sinks.base import CREATED, SKIPPED, UPDATED
 from nora.sinks.obsidian import (
-    ObsidianLibrary, ObsidianSink, MANAGED_START, MANAGED_END, ID_KEY)
+    ObsidianLibrary, ObsidianSink, MANAGED_START, MANAGED_END, ID_KEY,
+    _is_empty)
 
 
 def read(path):
@@ -313,6 +314,125 @@ def test_overwrite_clears_assigned_projects(obsidian_cfg, paper):
 
     frontmatter, _ = ObsidianLibrary._split_note(read(path))
     assert frontmatter['projects'] == []
+
+
+# ----------------------------------------------------------------------
+#  What a re-upload may and may not change
+# ----------------------------------------------------------------------
+def set_property(path, key, value):
+    """Edit one frontmatter property of a note, the way you would from the
+    Obsidian properties panel.
+    """
+    frontmatter, body = ObsidianLibrary._split_note(read(path))
+    frontmatter[key] = value
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(
+            f"---\n{ObsidianLibrary._dump_frontmatter(frontmatter)}---\n\n"
+            f"{body}")
+
+
+def test_an_empty_upload_does_not_clear_the_topics_you_curated(obsidian_cfg):
+    # The arXiv parser hands over `topics=[]`, so a re-upload used to wipe
+    # whatever topics you or a Zotero collection had put on the note
+    paper = Paper(title='No Topics Upstream', arxiv_id='2204.07548')
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    set_property(path, 'topics', ['[[Topics/Transformers|Transformers]]'])
+
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['topics'] == ['[[Topics/Transformers|Transformers]]']
+
+
+def test_an_upload_that_knows_the_topics_still_refreshes_them(obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    set_property(path, 'topics', ['[[Topics/Stale|Stale]]'])
+
+    # Absence is not deletion, but a value that does arrive still wins
+    paper.topics = ['Transformers', 'Attention']
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['topics'] == [
+        '[[Topics/Transformers|Transformers]]',
+        '[[Topics/Attention|Attention]]']
+
+
+def test_an_empty_upload_does_not_clear_other_populated_fields(obsidian_cfg):
+    # A paper first uploaded from Zotero, which knew its venue and year
+    rich = Paper(
+        title='Published Somewhere', arxiv_id='2204.07548',
+        venue='NeurIPS', year=2017)
+    path = ObsidianSink(obsidian_cfg).write(rich).ref
+
+    # The same paper re-uploaded from a source that knows less. Note that
+    # the DOI is left alone on purpose: `_nora_id` prefers it over the
+    # arXiv id, so adding one mid-life changes the paper's identity
+    ObsidianSink(obsidian_cfg).write(
+        Paper(title='Published Somewhere', arxiv_id='2204.07548'))
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['venue'] == '[[Venues/NeurIPS|NeurIPS]]'
+    assert frontmatter['year'] == 2017
+
+
+def test_the_reading_status_you_set_survives_a_re_upload(obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['reading_status'] == 'Not started'
+
+    set_property(path, 'reading_status', 'Done')
+
+    # `to_read=True` is hardcoded in every parser, so refreshing this
+    # could only ever send a paper you are done with back to the queue
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['reading_status'] == 'Done'
+
+
+def test_a_note_missing_the_reading_status_gets_it_seeded(obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    frontmatter, body = ObsidianLibrary._split_note(read(path))
+    del frontmatter['reading_status']
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(
+            f"---\n{ObsidianLibrary._dump_frontmatter(frontmatter)}---\n\n"
+            f"{body}")
+
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['reading_status'] == 'Not started'
+
+
+def test_derived_metadata_is_still_refreshed(obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+
+    # A venue that was wrong, or missing when the preprint was saved:
+    # refreshing this is the whole point of the 'update' mode
+    paper.venue = 'ICLR'
+    paper.year = 2018
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['venue'] == '[[Venues/ICLR|ICLR]]'
+    assert frontmatter['year'] == 2018
+
+
+@pytest.mark.parametrize('value, empty', [
+    (None, True),
+    ('', True),
+    ([], True),
+    ({}, True),
+    # Answers, not absences
+    (0, False),
+    (False, False),
+    ('a', False),
+    (['a'], False),
+])
+def test_what_counts_as_an_empty_value(value, empty):
+    assert _is_empty(value) is empty
 
 
 def test_a_renamed_note_is_found_by_its_identity(obsidian_cfg, paper):

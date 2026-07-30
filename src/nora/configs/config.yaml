@@ -61,8 +61,10 @@ obsidian:
     max_filename_length: 180
 
     # What to do when the note of a paper already exists. 'update'
-    # refreshes its properties and the NoRA-managed section, and
-    # preserves whatever you wrote around them. 'skip' leaves the note
+    # refreshes its properties and the NoRA-managed section, and preserves
+    # whatever you wrote around them. It leaves alone the things no source
+    # can know - your reading status, your projects - and never clears a
+    # property the upload itself has no value for. 'skip' leaves the note
     # untouched, 'overwrite' replaces it entirely
     on_existing: 'update'
 

@@ -182,7 +182,7 @@ The dominant sequence transduction models are based on ...
 %% nora:end %%
 ````
 
-Four things worth knowing:
+Five things worth knowing:
 
 - **Links are only written on the paper.** An author, venue or topic note carries 
 no list of papers, unlike its Notion counterpart. A wikilink needs recording only 
@@ -219,11 +219,16 @@ any property you added yourself — untouched.
 - **Renaming notes is fine.** Papers are recognized by the `nora_id` property 
 rather than by their filename, so you can rename a note, or change 
 `filename_template`, without NoRA creating a duplicate.
-- **Projects are yours to assign.** The `projects` property above is the one thing 
-NoRA writes empty on purpose: no source it reads from knows which of your projects 
-a paper serves, so it seeds the property, never clears what you put there, and 
-creates a note for every project you link to. See 
+- **Projects and the reading status are yours.** These two properties NoRA writes 
+once and never touches again, because no source it reads from knows which of your 
+projects a paper serves or whether you have read it. Re-uploading a paper you have 
+marked `Done` leaves it `Done`. See 
 [assigning papers to projects](#assigning-papers-to-projects) below.
+- **An upload that knows less never erases more.** Refreshing a note only sets the 
+properties the upload actually carries a value for. The arXiv reports no topics, so 
+re-uploading a paper from there leaves the topics you or a Zotero collection put on 
+it alone, rather than emptying them — and the same goes for a venue or a DOI that 
+one source knows and another does not.
 
 Since the frontmatter is plain properties, you can rebuild the Notion table view 
 with [Bases](https://help.obsidian.md/bases) or Dataview:
@@ -501,8 +506,9 @@ obsidian:
 
     # What to do when the note of a paper already exists. 'update'
     # refreshes its properties and the NoRA-managed section and preserves
-    # whatever you wrote around them, 'skip' leaves the note untouched,
-    # 'overwrite' replaces it entirely
+    # whatever you wrote around them, including your reading status, your
+    # projects and any property the upload has no value for. 'skip' leaves
+    # the note untouched, 'overwrite' replaces it entirely
     on_existing: 'update'
 
     # How authors, venues and topics are linked from a paper. 'path'

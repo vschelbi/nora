@@ -366,12 +366,17 @@ class ObsidianLibrary:
         return data
 
     def _seeded_keys(self):
-        """Frontmatter keys NoRA writes empty on a new paper note and
-        never touches again, because their content is yours to decide.
+        """Frontmatter keys NoRA writes once on a new paper note and never
+        touches again, because their content is yours to decide.
+
+        The reading status is one of them: no source NoRA parses knows
+        whether you have read a paper, so refreshing it could only ever
+        send a paper you are done with back to the top of your queue.
         """
-        if not self.cfg.track_projects:
-            return []
-        return [self.cfg.paper_keys['projects']]
+        keys = [self.cfg.paper_keys['to_read']]
+        if self.cfg.track_projects:
+            keys.append(self.cfg.paper_keys['projects'])
+        return keys
 
     def create_linked_projects(self, frontmatter: Dict):
         """Create the note of every project a paper links to.
@@ -463,10 +468,20 @@ class ObsidianLibrary:
         refreshed = self.paper_frontmatter(paper)
 
         # Except for the ones NoRA merely seeds: the projects you assigned
-        # a paper to would otherwise be cleared by every re-upload
+        # a paper to, and the reading status you set, would otherwise be
+        # reset by every re-upload
         for key in self._seeded_keys():
             if key in frontmatter:
                 refreshed.pop(key, None)
+
+        # Absence is not deletion. An upload that knows nothing of a field
+        # says nothing about it, rather than saying it is empty: the arXiv
+        # gives no topics at all, and it should not clear the ones you or
+        # a Zotero collection put there. A field that does arrive with a
+        # value still refreshes the note
+        for key, value in list(refreshed.items()):
+            if _is_empty(value) and not _is_empty(frontmatter.get(key)):
+                refreshed.pop(key)
 
         frontmatter = {**frontmatter, **refreshed}
         self.create_linked_projects(frontmatter)
@@ -532,6 +547,16 @@ def _slugify(text: str):
     """
     text = unicodedata.normalize('NFC', str(text)).strip().lower()
     return re.sub(r'[^\w/-]+', '-', text).strip('-')
+
+
+def _is_empty(value):
+    """Whether a frontmatter value carries no information.
+
+    `not value` will not do: `0` and `False` are answers, not absences,
+    and a year or a boolean property of your own must not be treated as
+    something NoRA failed to find.
+    """
+    return value is None or value == '' or value == [] or value == {}
 
 
 def _wikilink_names(value):
