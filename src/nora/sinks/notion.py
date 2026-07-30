@@ -59,7 +59,6 @@ class NotionLibrary:
             'token',
             'papers_db_id',
             'people_db_id',
-            'affiliations_db_id',
             'venues_db_id',
             'topics_db_id']
         users_keys = [f"notion_{k}" for k in keys]
@@ -217,13 +216,6 @@ class NotionLibrary:
             self.cfg.papers_db_id,
             name_property=self.cfg.paper_keys['name'], **kwargs)
 
-    def get_affiliations(self, **kwargs):
-        """Get affiliation pages from your Notion database.
-        """
-        return self._get_pages(
-            self.cfg.affiliations_db_id,
-            name_property=self.cfg.affiliation_keys['name'], **kwargs)
-
     def get_venues(self, **kwargs):
         """Get venue pages from your Notion database.
         """
@@ -247,12 +239,12 @@ class NotionLibrary:
         payload = {'parent': {'database_id': database_id}, 'properties': data}
         return self._request('POST', url, json=payload)
 
-    def create_person(
-            self,
-            name: str,
-            papers: List[str]=[],
-            affiliations: List[str]=[],
-            website: str=None):
+    def create_person(self, name: str, papers: List[str]=[]):
+        """Create an author page. Any other property of your People
+        database - an affiliation, a website - is left untouched: no
+        source NoRA reads from carries that information, so it is yours
+        to fill in.
+        """
         # Skip if person already exists in the database
         name = name[:self.cfg.max_text_length]
         if len(self.get_people(name_equals=name)) > 0:
@@ -268,17 +260,6 @@ class NotionLibrary:
             papers, self.get_papers, self.create_paper)
         data[self.cfg.person_keys['papers']] = {
             'relation': [{'id': x} for x in paper_ids]}
-
-        # Affiliations
-        affiliation_ids = self._relation_ids(
-            affiliations, self.get_affiliations, self.create_affiliation)
-        data[self.cfg.person_keys['affiliations']] = {
-            'relation': [{'id': x} for x in affiliation_ids]}
-
-        # Website
-        if website is not None and website != '':
-            data[self.cfg.person_keys['website']] = {
-                'url': website[:self.cfg.max_text_length]}
 
         return self._create_page(self.cfg.people_db_id, data)
 
@@ -343,20 +324,6 @@ class NotionLibrary:
                 'relation': [{'id': x} for x in venue_ids]}
 
         return self._create_page(self.cfg.papers_db_id, data)
-
-    def create_affiliation(self, name: str):
-        # Skip if affiliation already exists in the database
-        name = name[:self.cfg.max_text_length]
-        if len(self.get_affiliations(name_equals=name)) > 0:
-            print(f"ℹ️  Affiliation '{name}' already exists")
-            return
-
-        # Prepare the Notion API json
-        data = {
-            self.cfg.affiliation_keys['name']: {
-                'title': [{'text': {'content': name}}]}}
-
-        return self._create_page(self.cfg.affiliations_db_id, data)
 
     def create_venue(self, name: str):
         # Skip if venue already exists in the database

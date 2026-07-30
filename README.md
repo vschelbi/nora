@@ -36,7 +36,8 @@ config or with `--to` on any command:
 | [`notion`](https://www.notion.so) | Five interconnected Notion databases, as in the NoRA template |
 | [`obsidian`](https://obsidian.md) | Markdown notes written straight into your vault, with `[[wikilinks]]` between papers, authors, venues and topics |
 
-Both produce the same metadata; see [choosing a backend](#choosing-where-nora-writes).
+Both produce the same metadata, and you can write to **both at once** — see 
+[choosing a backend](#choosing-where-nora-writes).
 
 ### 🧪  NoRA template
 
@@ -52,6 +53,11 @@ More specifically, the template contains the following databases:
 
 The inner workings of the template are quite straightforward, the best way to 
 get familiar with it is probably to play with it 😉 !
+
+NoRA-Tools uploads to four of them — `📜 Papers`, `👤 People`, 
+`🤹 Conferences & journals` and `🧲 Key topics`. `🏗️ Projects` is yours to assign by 
+hand, and `🏢 Affiliations` is yours entirely — see *What NoRA does not fill in* 
+under [advanced usage](#advanced-usage).
 
 ### 🛠  NoRA-Tools
 
@@ -71,8 +77,8 @@ from an identifier (DOI, ISBN, PMID, arXiv ID), exactly like with
 - [Python](https://www.python.org/downloads) ≥ 3.9  
 - [pip](https://pip.pypa.io/en/stable/installation)
 - [Node.js](https://nodejs.org/en/download) ≥ 18 and ≤ 20  
-- **either** a [Notion](https://www.notion.com) account with API credentials, 
-**or** an [Obsidian](https://obsidian.md) vault
+- a [Notion](https://www.notion.com) account with API credentials, an 
+[Obsidian](https://obsidian.md) vault, or both
 - (optional) [Zotero](https://www.zotero.org) account with API credentials
 
 > **Note**: We have experienced issues with too-recent `node.js` 
@@ -86,8 +92,10 @@ from an identifier (DOI, ISBN, PMID, arXiv ID), exactly like with
 > `ERR_REQUIRE_ESM` error. If you are on `node >= 20.19` and want more 
 > recent translators, you can bump `TRANSLATION_SERVER_REF` and reinstall.
 
-> **Note**: The Notion and Obsidian sections below are alternatives — follow 
-> whichever matches the backend you intend to use, and skip the other.
+> **Note**: Follow the Notion and Obsidian sections below for the backend, or 
+> backends, you intend to use, and skip the other. Setting up both is what 
+> [writing to Notion and Obsidian at once](#writing-to-notion-and-obsidian-at-once)
+> needs.
 
 ### Installing the template in Notion
 
@@ -105,7 +113,7 @@ to your NoRA.
 To this end, do the following:
 - [Create an integration](https://developers.notion.com/docs/create-a-notion-integration) for your NoRA workspace
 - [Recover your **API secret token**](https://developers.notion.com/docs/create-a-notion-integration#get-your-api-secret)
-- For each database in the NoRA template (i.e. Papers, People, Affiliations, Venues, Topics):
+- For each database NoRA writes to (i.e. Papers, People, Venues, Topics):
   - [Give your integration permission to access this database](https://developers.notion.com/docs/create-a-notion-integration#give-your-integration-page-permissions)
   - Recover your **database ID**. For this, open the database page **in a browser**. The
 database ID is a 32-alphanumeric-character that can be recovered from the URL of the page:
@@ -119,7 +127,6 @@ notion:
     token: your_api_secret_token
     papers_db_id: your_papers_database_id
     people_db_id: your_people_database_id
-    affiliations_db_id: your_affiliations_database_id
     venues_db_id: your_venues_database_id
     topics_db_id: your_topics_database_id
 ````
@@ -136,8 +143,8 @@ obsidian:
     vault_path: /path/to/your/vault
 ````
 
-NoRA creates one folder per NoRA database — `Papers`, `People`, `Affiliations`, 
-`Venues` and `Topics` — and links them together with `[[wikilinks]]`, so 
+NoRA creates one folder per database it writes to — `Papers`, `People`, `Venues`, 
+`Topics` and `Projects` — and links them together with `[[wikilinks]]`, so 
 Obsidian's **backlinks** and **graph view** give you the same relations as the 
 Notion databases: open an author's note and it lists every one of their papers.
 
@@ -153,6 +160,7 @@ venue: '[[Venues/NeurIPS|NeurIPS]]'
 year: 2017
 topics:
 - '[[Topics/Transformers|Transformers]]'
+projects: []
 url: https://arxiv.org/abs/1706.03762
 arxiv: '1706.03762'
 doi:
@@ -174,7 +182,34 @@ The dominant sequence transduction models are based on ...
 %% nora:end %%
 ````
 
-Two things worth knowing:
+Four things worth knowing:
+
+- **Links are only written on the paper.** An author, venue or topic note carries 
+no list of papers, unlike its Notion counterpart. A wikilink needs recording only 
+once, and Obsidian derives the reverse direction itself: open `People/Ashish 
+Vaswani`, and the **backlinks** pane at the bottom lists every paper linking to 
+them, the **graph view** draws the edges, and `[[Ashish Vaswani]]` autocompletes 
+anywhere. So an author note stays as small as this, and yours to fill in:
+
+  ````markdown
+  ---
+  name: Ashish Vaswani
+  type: person
+  ---
+  ````
+
+  It also means NoRA never rewrites an entity note it has already created — your 
+biography of an author, or your reading plan for a venue, is safe there. If you 
+would rather have the papers as a real, sortable property, a 
+[Bases](https://help.obsidian.md/bases) or Dataview query on the author note 
+computes it from the paper side, and stays correct when a paper is renamed or 
+deleted:
+
+  ````
+  ```dataview
+  LIST FROM [[]] AND "Papers"
+  ```
+  ````
 
 - **Your writing is safe.** Everything NoRA generates sits between the 
 `%% nora:start %%` and `%% nora:end %%` markers, which are Obsidian comments and 
@@ -184,6 +219,11 @@ any property you added yourself — untouched.
 - **Renaming notes is fine.** Papers are recognized by the `nora_id` property 
 rather than by their filename, so you can rename a note, or change 
 `filename_template`, without NoRA creating a duplicate.
+- **Projects are yours to assign.** The `projects` property above is the one thing 
+NoRA writes empty on purpose: no source it reads from knows which of your projects 
+a paper serves, so it seeds the property, never clears what you put there, and 
+creates a note for every project you link to. See 
+[assigning papers to projects](#assigning-papers-to-projects) below.
 
 Since the frontmatter is plain properties, you can rebuild the Notion table view 
 with [Bases](https://help.obsidian.md/bases) or Dataview:
@@ -196,6 +236,73 @@ WHERE type = "paper"
 SORT year DESC
 ```
 ````
+
+### Assigning papers to projects
+
+The `🏗️ Projects` database of the Notion template has an Obsidian equivalent: a 
+`Projects` folder, and a `projects` property on every paper note.
+
+Which project a paper serves is something only you know — Zotero and the arXiv 
+certainly do not — so NoRA cannot fill this in the way it fills authors or venues. 
+What it does instead is get out of your way:
+
+- every new paper note gets an empty `projects` property, so it is already in the 
+properties panel waiting to be filled
+- whatever you put there **survives every re-upload**. This is the one property 
+NoRA seeds and then never touches again
+- each project you link to gets a note of its own in `Projects/`, created on the 
+next upload of any paper pointing at it
+
+Assign a paper by linking projects from its properties panel, or by editing the 
+frontmatter directly:
+
+````yaml
+projects:
+- '[[Projects/Thesis chapter 3|Thesis chapter 3]]'
+- '[[Reading group]]'
+````
+
+Both link styles work, aliases and headings are understood, and the note name is 
+taken from the last path segment — so the two lines above produce 
+`Projects/Thesis chapter 3.md` and `Projects/Reading group.md`. Plain text is not a 
+link and creates nothing, so `projects: [Thesis]` leaves your vault alone.
+
+A project note holds only its name and type, like every other entity note, which 
+means Obsidian's **backlinks** pane on it is your reading list for that project:
+
+````markdown
+---
+name: Thesis chapter 3
+type: project
+---
+````
+
+And as with authors, a query turns that into a real list you can put in the note 
+and sort:
+
+````
+```dataview
+TABLE year AS Year, venue AS Venue, reading_status AS Status
+FROM [[]] AND "Papers"
+SORT year DESC
+```
+````
+
+Two things to keep in mind:
+
+- A project note is never overwritten once it exists, so it is a good place for the 
+plan, the deadline or the draft that goes with the project.
+- `on_existing: 'overwrite'` does what it says and replaces the whole note, 
+projects included. Use the default `'update'` if you assign projects by hand — 
+which is the whole point of the property.
+
+Set `track_projects: False` in the `obsidian` section of your `~/.nora/user.yaml` 
+if you would rather not have any of this: no property on paper notes, and no 
+`Projects` folder.
+
+> **Note**: this is Obsidian-only. In Notion, the `🏗️ Projects` database and its 
+> relation already exist in the template, so the property is there to fill in 
+> without NoRA having to seed anything — and NoRA does not write to it either.
 
 ### Getting your Zotero API keys (optional)
 
@@ -245,6 +352,12 @@ nora configure
 this will prompt you to pass your secret keys, which will be saved in 
 `~/.nora/user.yaml`.
 
+You can re-run it whenever you like: it is an update rather than a reset. Every 
+prompt offers to keep the value it already has — press Enter to leave it alone — 
+and any setting you edited by hand is preserved. So pointing NoRA at a new vault 
+takes one answer and costs you neither your Notion token nor your customized 
+`venues`, `link_style` or `filename_template`.
+
 <details>
 <summary><b>
 ⚠️ Are you using a `.netrc` file with a `default` configuration?</b></summary>
@@ -292,21 +405,69 @@ nora zotero-upload
 
 ### Choosing where NoRA writes
 
-`nora configure` asks which backend you want and only prompts for that one's 
-keys. You can change your mind at any time by editing your `~/.nora/user.yaml`:
+`nora configure` asks where you want your papers and only prompts for the keys of 
+the backends you name — offering, on a re-run, the answer you gave last time. The 
+keys of a backend you are *not* configuring stay in your config, so switching away 
+from Notion and back later does not mean hunting down your database ids again. You 
+can also change your mind by editing your `~/.nora/user.yaml` directly:
 
 ````yaml
 backend: obsidian   # or 'notion'
 ````
 
 Any command also takes a `--to` flag, which overrides the config for that run — 
-handy to try Obsidian out, or to copy a paper into both:
+handy to try Obsidian out without committing to it:
 
 ```bash
 nora url https://arxiv.org/abs/2204.07548 --to obsidian
 nora id 2204.07548 --to notion
 nora zotero-upload --to obsidian
 ```
+
+### Writing to Notion and Obsidian at once
+
+Answer `both` when `nora configure` asks, and every paper is written to your 
+Notion databases **and** your vault in one pass — one lookup of the metadata, two 
+destinations. In your `~/.nora/user.yaml` this is simply a list, so you can also 
+switch to it later by hand:
+
+````yaml
+backend: [notion, obsidian]
+````
+
+Both the `notion` and the `obsidian` sections then have to be filled in. NoRA 
+connects to every backend before writing anything, so a missing Notion token or 
+vault path stops the run upfront instead of halfway through.
+
+Repeating `--to` does the same for a single run, and overrides the config either 
+way — useful to backfill a vault from a Notion-only setup:
+
+```bash
+nora url https://arxiv.org/abs/2204.07548 --to notion --to obsidian
+nora zotero-upload --to notion --to obsidian
+```
+
+Each paper reports what every backend did with it, and the run ends with one 
+tally per backend:
+
+```
+[1/2] ⬆️ Uploading 'Attention Is All You Need'...
+   ✅ notion: created
+   🔄 obsidian: updated
+✅ Done
+[2/2] ⬆️ Uploading 'Segment Any Point Cloud'...
+   ❌ notion: rate-limited by the Notion API
+   ✅ obsidian: created
+✅ Done
+📚 notion: 1 created, 1 failed
+📚 obsidian: 1 created, 1 updated
+```
+
+As the second paper shows, the backends are independent: one of them failing — 
+an expired Notion token, a vault on an unmounted drive — costs you neither the 
+other backend nor the rest of the upload. Re-running the same command later 
+picks up what was missed, since both backends recognize the papers they already 
+hold rather than duplicating them.
 
 ### Advanced usage
 
@@ -323,13 +484,15 @@ written:
 obsidian:
     vault_path: /path/to/your/vault
 
-    # Subfolders of the vault, one per NoRA database. Created if missing
+    # Subfolders of the vault, one per NoRA database. Created if missing.
+    # Only these are created: an entry left over from an older version of
+    # NoRA is ignored rather than recreated in your vault
     folders:
         papers: 'Papers'
         people: 'People'
-        affiliations: 'Affiliations'
         venues: 'Venues'
         topics: 'Topics'
+        projects: 'Projects'
 
     # Name given to the note of a paper. Available fields: {title},
     # {year}, {venue}, {first_author}, {authors}, {arxiv}, {doi}, {citekey}
@@ -353,6 +516,10 @@ obsidian:
 
     # Also record the key topics as Obsidian tags, alongside the links
     topics_as_tags: False
+
+    # Seed a `projects` property on new paper notes, and create a note
+    # for every project you link to from one. False leaves projects out
+    track_projects: True
 ````
 
 The frontmatter keys themselves are configurable too, under 
@@ -374,9 +541,7 @@ personal config file `~/.nora/user.yaml`:
 # following database-specific keys
 person_keys:
     name: 'Name'
-    affiliations: '🏢 Affiliations'
     papers: '📜 Papers'
-    website: 'Website'
 
 paper_keys:
     name: 'Name'
@@ -388,12 +553,57 @@ paper_keys:
     year: 'Year'
     venue:  '🤹 Venue'
 
-affiliation_keys:
-    name: 'Name'
-
 venue_keys:
     name: 'Name'
 ````
+
+</details>
+
+<details>
+<summary><b>What NoRA does not fill in</b></summary>
+
+NoRA only writes what the sources it reads from actually provide. Zotero and the 
+arXiv give the title, authors, abstract, year, venue, identifiers and notes of a 
+paper — they do not say which institution an author belongs to, or where their 
+homepage is. So **affiliations and author websites are not filled in by NoRA**, in 
+either backend, and NoRA no longer references them at all:
+
+- the Notion backend no longer needs an `affiliations_db_id`, no longer creates 
+pages in an Affiliations database, and no longer writes the `🏢 Affiliations` or 
+`Website` property of a person
+- the Obsidian backend no longer creates an `Affiliations` folder, and an author 
+note now holds only its `name` and `type`
+
+Before, these were written as empty values — an empty relation on every Notion 
+person, `affiliations: []` and a blank `website:` on every Obsidian author note — 
+which read like a feature that had stopped working rather than metadata NoRA never 
+had in the first place.
+
+**Nothing needs to change on your side.** You can leave the `🏢 Affiliations` 
+database and both properties exactly where they are in Notion: NoRA does not touch 
+them, so whatever you fill in by hand stays yours, and Notion does not mind a 
+property left unset. Deleting them is equally fine.
+
+Two leftovers to know about if you have been using NoRA for a while:
+
+- Your `~/.nora/user.yaml` still lists `notion.affiliations_db_id`, 
+`notion.person_keys.affiliations`, `notion.person_keys.website` and 
+`obsidian.folders.affiliations`, since `nora configure` writes the whole config out. 
+All of them are ignored and there is nothing to clean up: NoRA creates only the 
+folders it actually writes to, so deleting `Affiliations/` from your vault is 
+enough — it does not come back on the next upload.
+- Author notes and person pages created by an earlier version keep their empty 
+`affiliations` and `website` values. NoRA never rewrites an entity note it has 
+already created, so clearing them is a manual edit — in Obsidian, a one-off 
+[Properties](https://help.obsidian.md/properties) sweep over the `People` folder.
+
+The `🏗️ Projects` database of the Notion template is a related but different case. 
+NoRA does not write to it either, for the same reason — no source it reads from 
+knows which project a paper serves — but the property is worth having, so you can 
+assign it by hand. Notion's template already gives you the relation to do that, and 
+the Obsidian backend now offers the same through a `projects` property and a 
+`Projects` folder: see [assigning papers to 
+projects](#assigning-papers-to-projects).
 
 </details>
 

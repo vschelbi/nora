@@ -63,9 +63,11 @@ class RecordingSink(Sink):
 
     name = 'recording'
 
-    def __init__(self, fail_on: str=None):
+    def __init__(self, name: str=None, fail_on: str=None):
         self.written = []
         self.fail_on = fail_on
+        if name is not None:
+            self.name = name
 
     def write(self, paper):
         if paper.title == self.fail_on:

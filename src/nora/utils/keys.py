@@ -3,7 +3,7 @@ from omegaconf import OmegaConf
 from typing import List
 
 
-__all__ = ['sanity_check_config']
+__all__ = ['MISSING_VALUES', 'sanity_check_config']
 
 
 # Values standing for a key the user has not filled in yet. '???' is the

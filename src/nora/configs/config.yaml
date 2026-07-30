@@ -1,7 +1,11 @@
 verbose: True
 
 # Where NoRA writes the papers it retrieves: 'notion' or 'obsidian'. Can
-# be overridden per command with `nora url <url> --to obsidian`
+# be overridden per command with `nora url <url> --to obsidian`.
+#
+# Set it to a list to write every paper to both at once, in which case
+# both sections below must be configured:
+#     backend: [notion, obsidian]
 backend: notion
 
 notion:
@@ -9,7 +13,6 @@ notion:
     token: ???
     papers_db_id: ???
     people_db_id: ???
-    affiliations_db_id: ???
     venues_db_id: ???
     topics_db_id: ???
 
@@ -17,9 +20,7 @@ notion:
     # following database-specific keys
     person_keys:
         name: 'Name'
-        affiliations: '🏢 Affiliations'
         papers: '📜 Papers'
-        website: 'Website'
 
     paper_keys:
         name: 'Name'
@@ -30,9 +31,6 @@ notion:
         to_read: 'Reading status'
         year: 'Year'
         venue: '🤹 Venue'
-
-    affiliation_keys:
-        name: 'Name'
 
     venue_keys:
         name: 'Name'
@@ -47,13 +45,15 @@ obsidian:
     # Path to your Obsidian vault. It will be created if it does not exist
     vault_path: ???
 
-    # Subfolders of the vault, one per NoRA database. Created if missing
+    # Subfolders of the vault, one per NoRA database. Created if missing.
+    # Only these are created, so an entry left over from an older version
+    # of NoRA is ignored rather than recreated in your vault
     folders:
         papers: 'Papers'
         people: 'People'
-        affiliations: 'Affiliations'
         venues: 'Venues'
         topics: 'Topics'
+        projects: 'Projects'
 
     # Name given to the note of a paper. Available fields: {title},
     # {year}, {venue}, {first_author}, {authors}, {arxiv}, {doi}, {citekey}
@@ -78,6 +78,13 @@ obsidian:
     # Also record the key topics as Obsidian tags, alongside the links
     topics_as_tags: False
 
+    # Which project a paper belongs to is something only you know, so no
+    # source NoRA reads from can provide it. Instead, NoRA writes an empty
+    # `projects` property on new paper notes for you to fill in, never
+    # overwrites what you put there, and creates a note for every project
+    # you link to. Set to False to leave projects out of your vault
+    track_projects: True
+
     # If you happen to modify your field names in Obsidian, update the
     # following frontmatter keys
     paper_keys:
@@ -85,6 +92,7 @@ obsidian:
         authors: 'authors'
         abstract: 'abstract'
         topics: 'topics'
+        projects: 'projects'
         url: 'url'
         to_read: 'reading_status'
         year: 'year'
@@ -96,16 +104,14 @@ obsidian:
     # listed: Obsidian's backlinks already show every paper linking to them
     person_keys:
         name: 'name'
-        affiliations: 'affiliations'
-        website: 'website'
-
-    affiliation_keys:
-        name: 'name'
 
     venue_keys:
         name: 'name'
 
     topic_keys:
+        name: 'name'
+
+    project_keys:
         name: 'name'
 
 zotero:

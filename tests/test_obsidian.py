@@ -77,6 +77,17 @@ def test_write_creates_a_note_per_entity(obsidian_cfg, paper):
     assert (vault / 'Topics' / '3D vision.md').is_file()
 
 
+def test_an_entity_note_only_holds_its_name_and_type(obsidian_cfg, paper):
+    ObsidianSink(obsidian_cfg).write(paper)
+    person = Path(obsidian_cfg.vault_path) / 'People' / 'Ashish Vaswani.md'
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(person))
+
+    # NoRA has no source of affiliations or websites, so it used to write
+    # these as empty properties that never filled in
+    assert frontmatter == {'name': 'Ashish Vaswani', 'type': 'person'}
+
+
 def test_frontmatter_round_trips(obsidian_cfg, paper):
     paper.title = 'BERT: Pre-training, and "quotes" too'
     result = ObsidianSink(obsidian_cfg).write(paper)
@@ -194,6 +205,116 @@ def test_overwrite_replaces_the_whole_note(obsidian_cfg, paper):
     assert 'My own text.' not in read(path)
 
 
+# ----------------------------------------------------------------------
+#  Projects
+# ----------------------------------------------------------------------
+def assign_projects(path, value):
+    """Fill in the `projects` property of a paper note, the way you would
+    from the Obsidian properties panel.
+    """
+    frontmatter, body = ObsidianLibrary._split_note(read(path))
+    frontmatter['projects'] = value
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(
+            f"---\n{ObsidianLibrary._dump_frontmatter(frontmatter)}---\n\n"
+            f"{body}")
+
+
+def test_a_new_paper_gets_an_empty_projects_property(obsidian_cfg, paper):
+    result = ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(result.ref))
+
+    # There for you to fill in from the properties panel, since no source
+    # NoRA reads from knows which project a paper serves
+    assert frontmatter['projects'] == []
+    assert (Path(obsidian_cfg.vault_path) / 'Projects').is_dir()
+
+
+def test_assigned_projects_survive_a_re_upload(obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    assign_projects(path, ['[[Projects/Thesis chapter 3|Thesis chapter 3]]'])
+
+    paper.abstract = 'A refreshed abstract.'
+    assert ObsidianSink(obsidian_cfg).write(paper).status == UPDATED
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+
+    # The seeded empty value must not clobber what you assigned
+    assert frontmatter['projects'] == [
+        '[[Projects/Thesis chapter 3|Thesis chapter 3]]']
+    assert 'A refreshed abstract.' in read(path)
+
+
+def test_a_linked_project_gets_a_note(obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    assign_projects(path, ['[[Projects/Thesis chapter 3|Thesis chapter 3]]'])
+
+    ObsidianSink(obsidian_cfg).write(paper)
+    note = Path(obsidian_cfg.vault_path) / 'Projects' / 'Thesis chapter 3.md'
+
+    assert note.is_file()
+    frontmatter, _ = ObsidianLibrary._split_note(read(note))
+    assert frontmatter == {'name': 'Thesis chapter 3', 'type': 'project'}
+
+
+def test_a_project_note_you_wrote_is_never_overwritten(obsidian_cfg, paper):
+    vault = Path(obsidian_cfg.vault_path)
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    note = vault / 'Projects' / 'Thesis.md'
+    note.write_text("---\nname: Thesis\n---\n\nMy plan.\n", encoding='utf-8')
+
+    assign_projects(path, ['[[Thesis]]'])
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    assert 'My plan.' in read(note)
+
+
+@pytest.mark.parametrize('value, expected', [
+    (['[[Projects/Thesis|Thesis]]'], ['Thesis']),
+    (['[[Thesis]]'], ['Thesis']),
+    ('[[Projects/Thesis]]', ['Thesis']),
+    (['[[Projects/Thesis#Goals|Goals]]'], ['Thesis']),
+    (['[[A]]', '[[B]]'], ['A', 'B']),
+    (['[[A]]', '[[Projects/A|A]]'], ['A']),
+    # Plain text is not a link, so there is no note to point at
+    (['Thesis'], []),
+    ([], []),
+    (None, []),
+])
+def test_project_links_are_parsed(obsidian_cfg, paper, value, expected):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    assign_projects(path, value)
+
+    ObsidianSink(obsidian_cfg).write(paper)
+    folder = Path(obsidian_cfg.vault_path) / 'Projects'
+
+    assert sorted(p.stem for p in folder.glob('*.md')) == sorted(expected)
+
+
+def test_projects_can_be_turned_off(obsidian_cfg, paper):
+    obsidian_cfg.track_projects = False
+    result = ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(result.ref))
+
+    assert 'projects' not in frontmatter
+    assert not (Path(obsidian_cfg.vault_path) / 'Projects').exists()
+
+
+def test_overwrite_clears_assigned_projects(obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    assign_projects(path, ['[[Projects/Thesis|Thesis]]'])
+
+    # 'overwrite' replaces the note entirely, projects included: that is
+    # its documented contract, unlike 'update'
+    obsidian_cfg.on_existing = 'overwrite'
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['projects'] == []
+
+
 def test_a_renamed_note_is_found_by_its_identity(obsidian_cfg, paper):
     original = Path(ObsidianSink(obsidian_cfg).write(paper).ref)
     renamed = original.with_name('I renamed this note.md')
@@ -249,6 +370,25 @@ def test_a_missing_vault_is_created(cfg, tmp_path):
     assert library.vault.is_dir()
     for folder in cfg.obsidian.folders.values():
         assert (library.vault / folder).is_dir()
+
+
+def test_a_leftover_folder_in_the_config_is_ignored(cfg, tmp_path, paper):
+    vault = tmp_path / 'vault'
+    (vault / '.obsidian').mkdir(parents=True)
+    cfg.obsidian.vault_path = str(vault)
+
+    # What an older `nora configure` left in a long-time user's config
+    cfg.obsidian.folders.affiliations = 'Affiliations'
+
+    ObsidianSink(cfg.obsidian).write(paper)
+    assert not (vault / 'Affiliations').exists()
+
+    # And deleting it stays deleted, rather than coming back on every
+    # upload
+    (vault / 'Affiliations').mkdir()
+    (vault / 'Affiliations').rmdir()
+    ObsidianSink(cfg.obsidian).write(paper)
+    assert not (vault / 'Affiliations').exists()
 
 
 def test_a_vault_path_pointing_at_a_file_exits(cfg, tmp_path):

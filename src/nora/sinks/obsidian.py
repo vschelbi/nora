@@ -46,7 +46,12 @@ ENTITY_KEYS = {
     'people': 'person_keys',
     'venues': 'venue_keys',
     'topics': 'topic_keys',
-    'affiliations': 'affiliation_keys'}
+    'projects': 'project_keys'}
+
+# A wikilink, as written in a frontmatter property. The target may carry
+# the folder it lives in, a heading or block reference, and an alias,
+# none of which are part of the note name
+WIKILINK = re.compile(r'\[\[([^\]|#^]+)(?:[#^][^\]|]*)?(?:\|[^\]]*)?\]\]')
 
 
 class _FrontmatterDumper(yaml.SafeDumper):
@@ -111,7 +116,7 @@ class ObsidianLibrary:
                 f"(no .obsidian/ folder). Open it in Obsidian to use it")
 
         # One folder per NoRA database
-        for key in self.cfg.folders:
+        for key in self._folder_keys():
             self._folder(key).mkdir(parents=True, exist_ok=True)
 
         # Recognize already-uploaded papers wherever they now live and
@@ -121,6 +126,19 @@ class ObsidianLibrary:
     # ------------------------------------------------------------------
     #  Paths and note names
     # ------------------------------------------------------------------
+    def _folder_keys(self):
+        """The folders NoRA writes into.
+
+        Read off what the code actually uses rather than off `folders`, so
+        that a leftover entry in your config - the `affiliations` folder
+        NoRA used to create, say - is ignored instead of being recreated
+        in your vault on every upload, however often you delete it.
+        """
+        keys = ['papers'] + list(ENTITY_KEYS)
+        if not self.cfg.track_projects:
+            keys.remove('projects')
+        return keys
+
     def _folder(self, key: str):
         """Absolute path of one of the NoRA folders in the vault.
         """
@@ -285,9 +303,9 @@ class ObsidianLibrary:
             folder_key: str,
             name: str,
             frontmatter: Dict=None):
-        """Create the note of an author, venue, topic or affiliation.
-        Existing notes are left alone: you may have written a biography
-        or notes of your own in there.
+        """Create the note of an author, venue, topic or project.
+        Existing notes are left alone: you may have written a biography,
+        or the plan of a project, in there.
         """
         note_name = self._note_name(name)
         if not note_name:
@@ -302,19 +320,6 @@ class ObsidianLibrary:
         self._write_atomic(path, self._compose(data, ''))
 
         return path
-
-    def create_person(self, name: str):
-        """Create an author note. Unlike in Notion, the papers of an
-        author need not be listed here: Obsidian's backlinks pane
-        already shows every paper note linking to them.
-        """
-        keys = self.cfg.person_keys
-        return self.create_entity(
-            'people',
-            name,
-            {'type': 'person',
-             keys['affiliations']: [],
-             keys['website']: None})
 
     def paper_frontmatter(self, paper: Paper):
         """Build the frontmatter properties of a paper note.
@@ -333,6 +338,12 @@ class ObsidianLibrary:
         data[keys['year']] = paper.year
         data[keys['topics']] = [
             self._link('topics', x) for x in paper.topics]
+
+        # Seeded empty, for you to fill in with the projects the paper
+        # belongs to. `_seeded_keys` keeps a re-upload from clearing it
+        if self.cfg.track_projects:
+            data[keys['projects']] = []
+
         data[keys['url']] = paper.url or None
         data[keys['arxiv']] = paper.arxiv_id
         data[keys['doi']] = paper.doi
@@ -353,6 +364,28 @@ class ObsidianLibrary:
         data[ID_KEY] = _nora_id(paper)
 
         return data
+
+    def _seeded_keys(self):
+        """Frontmatter keys NoRA writes empty on a new paper note and
+        never touches again, because their content is yours to decide.
+        """
+        if not self.cfg.track_projects:
+            return []
+        return [self.cfg.paper_keys['projects']]
+
+    def create_linked_projects(self, frontmatter: Dict):
+        """Create the note of every project a paper links to.
+
+        Projects are read back from the note rather than taken from the
+        paper metadata: no source NoRA parses knows which of your
+        projects a paper serves, so you are the one who wrote them there.
+        """
+        if not self.cfg.track_projects:
+            return
+
+        value = frontmatter.get(self.cfg.paper_keys['projects'])
+        for name in _wikilink_names(value):
+            self.create_entity('projects', name, {'type': 'project'})
 
     def paper_body(self, paper: Paper):
         """Build the NoRA-managed part of a paper note.
@@ -427,7 +460,16 @@ class ObsidianLibrary:
 
         # Properties you added yourself are preserved, the ones NoRA
         # manages are refreshed
-        frontmatter = {**frontmatter, **self.paper_frontmatter(paper)}
+        refreshed = self.paper_frontmatter(paper)
+
+        # Except for the ones NoRA merely seeds: the projects you assigned
+        # a paper to would otherwise be cleared by every re-upload
+        for key in self._seeded_keys():
+            if key in frontmatter:
+                refreshed.pop(key, None)
+
+        frontmatter = {**frontmatter, **refreshed}
+        self.create_linked_projects(frontmatter)
 
         managed = self.paper_body(paper)
         start = body.find(MANAGED_START)
@@ -465,9 +507,13 @@ class ObsidianSink(Sink):
         try:
             # Authors, venues and topics get a note of their own, so that
             # Obsidian's backlinks and graph reproduce the relations of
-            # the Notion databases
+            # the Notion databases. Only the name and the type are
+            # written: whatever else you keep on an author - a biography,
+            # an affiliation, a website - is yours, and NoRA has no
+            # source to fill it from anyway
             for author in paper.authors:
-                self.library.create_person(author)
+                self.library.create_entity(
+                    'people', author, {'type': 'person'})
             if paper.venue:
                 self.library.create_entity(
                     'venues', paper.venue, {'type': 'venue'})
@@ -486,6 +532,34 @@ def _slugify(text: str):
     """
     text = unicodedata.normalize('NFC', str(text)).strip().lower()
     return re.sub(r'[^\w/-]+', '-', text).strip('-')
+
+
+def _wikilink_names(value):
+    """Names of the notes a frontmatter property links to.
+
+    Obsidian holds a property as a list or as a single value, so both are
+    accepted. Only actual wikilinks count: plain text in the property is
+    not a link, so it has no note to point at and NoRA leaves it alone
+    rather than guessing a note into existence.
+    """
+    if value is None:
+        return []
+
+    values = value if isinstance(value, (list, tuple)) else [value]
+
+    names = []
+    for item in values:
+        if not isinstance(item, str):
+            continue
+        for target in WIKILINK.findall(item):
+            # A link written as `Projects/Name` points at `Name`, and a
+            # trailing slash would otherwise leave an empty last part
+            name = target.strip().rstrip('/').split('/')[-1].strip()
+            if name:
+                names.append(name)
+
+    # The same project may well be linked twice in one property
+    return list(dict.fromkeys(names))
 
 
 def _citekey(paper: Paper):

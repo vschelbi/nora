@@ -1,15 +1,19 @@
 import click
 
+from nora import __version__
 from nora.sinks import SINKS
 from nora.upload import upload_paper, upload_papers
 from nora.utils.config import load_config, configure_user_config
 from nora.parsers.zotero import ZoteroLibrary, ZoteroItem
 
 
-BACKEND_HELP = "Backend to write to. Overrides the `backend` of your config"
+BACKEND_HELP = (
+    "Backend to write to, repeatable. Overrides the `backend` of your "
+    "config")
 
 
 @click.group()
+@click.version_option(__version__, '-V', '--version', prog_name='nora')
 def cli():
     """NoRA – Notion & Obsidian Research Assistant"""
     pass
@@ -29,8 +33,10 @@ def configure():
 # -------------------------------------------------------------------------
 @cli.command("url")
 @click.argument("url")
-@click.option("--to", type=click.Choice(sorted(SINKS)), help=BACKEND_HELP)
-def url_command(url: str, to: str):
+@click.option(
+    "--to", type=click.Choice(sorted(SINKS)), multiple=True,
+    help=BACKEND_HELP)
+def url_command(url: str, to):
     """Process a paper from its URL (e.g., arXiv, DOI)."""
     cfg = load_config()
 
@@ -47,8 +53,10 @@ def url_command(url: str, to: str):
 # -------------------------------------------------------------------------
 @cli.command("id")
 @click.argument("id")
-@click.option("--to", type=click.Choice(sorted(SINKS)), help=BACKEND_HELP)
-def id_command(id: str, to: str):
+@click.option(
+    "--to", type=click.Choice(sorted(SINKS)), multiple=True,
+    help=BACKEND_HELP)
+def id_command(id: str, to):
     """Process a paper from an identifier (DOI, ISBN, PMID, arXiv ID)."""
     cfg = load_config()
 
@@ -64,8 +72,10 @@ def id_command(id: str, to: str):
 #  nora zotero-upload
 # -------------------------------------------------------------------------
 @cli.command("zotero-upload")
-@click.option("--to", type=click.Choice(sorted(SINKS)), help=BACKEND_HELP)
-def zotero_upload_command(to: str):
+@click.option(
+    "--to", type=click.Choice(sorted(SINKS)), multiple=True,
+    help=BACKEND_HELP)
+def zotero_upload_command(to):
     """Upload your whole Zotero library to NoRA."""
     click.echo("📚 Uploading Zotero to NoRA")
 
