@@ -298,10 +298,18 @@ class ObsidianLibrary:
             frontmatter = self._read_frontmatter(path)
             doi = frontmatter.get(keys['doi'])
             arxiv = frontmatter.get(keys['arxiv'])
+            title = frontmatter.get(keys['name'])
             ids = [
                 frontmatter.get(ID_KEY),
                 f"doi:{str(doi).strip().lower()}" if doi else None,
-                f"arxiv:{str(arxiv).strip().lower()}" if arxiv else None]
+                f"arxiv:{str(arxiv).strip().lower()}" if arxiv else None,
+                # Last resort, and the only thing left when the paper being
+                # uploaded carries no identifier at all - a Notion page
+                # whose URL is a publisher landing page, say. Only reached
+                # for such a paper, so two distinct papers that happen to
+                # share a title still get a note each as long as either
+                # knows its own DOI
+                _title_id(title) if title else None]
             for nora_id in ids:
                 if nora_id and nora_id not in index:
                     index[nora_id] = path
@@ -323,6 +331,11 @@ class ObsidianLibrary:
         """
         for nora_id in _nora_ids(paper):
             self._index[nora_id] = path
+
+        # And under its title, as `_build_index` does, so that a paper with
+        # no identifier can still find this note later in the same run.
+        # `setdefault`, so it never takes a title another note claimed
+        self._index.setdefault(_title_id(paper.title), path)
 
     # ------------------------------------------------------------------
     #  Writing
@@ -757,10 +770,16 @@ def _nora_ids(paper: Paper):
     # A title is only ever an identity of last resort: two distinct papers
     # may share one, so it is trusted only when there is nothing better
     if not ids:
-        slug = re.sub(r'[^\w]+', '-', (paper.title or '').lower()).strip('-')
-        ids.append(f"title:{slug}")
+        ids.append(_title_id(paper.title))
 
     return ids
+
+
+def _title_id(title):
+    """The identity a paper has when it has no identifier of its own.
+    """
+    slug = re.sub(r'[^\w]+', '-', str(title or '').lower()).strip('-')
+    return f"title:{slug}"
 
 
 def _notes_to_markdown(notes: str, notes_format: str):

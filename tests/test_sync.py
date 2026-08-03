@@ -103,6 +103,10 @@ def test_a_relation_is_resolved_to_its_titles():
     ('https://arxiv.org/pdf/2204.07548v2', None, '2204.07548v2'),
     ('https://doi.org/10.1234/abcd', '10.1234/abcd', None),
     ('https://dl.acm.org/doi/abs/10.1145/3292500', '10.1145/3292500', None),
+    # Wiley and AGU serve the DOI with nothing in between
+    ('https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2025JF008470',
+     '10.1029/2025jf008470', None),
+    ('https://onlinelibrary.wiley.com/doi/epdf/10.1002/x', '10.1002/x', None),
     # A publisher landing page gives away nothing
     ('https://openaccess.thecvf.com/content/paper.pdf', None, None),
     (None, None, None),

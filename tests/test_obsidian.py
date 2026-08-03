@@ -562,6 +562,36 @@ def test_changing_the_filename_template_does_not_duplicate(obsidian_cfg, paper):
     assert len(papers) == 1
 
 
+def test_a_paper_without_identifiers_finds_its_note_by_title(obsidian_cfg):
+    # A note uploaded from Zotero, which knew the DOI
+    known = Paper(
+        title='Modeling Crack Arrest in Snow Slab Avalanches',
+        doi='10.1029/2025JF008470')
+    path = ObsidianSink(obsidian_cfg).write(known).ref
+
+    # The same paper arriving from a Notion page whose URL gives no
+    # identifier away. Only the title is left to go on, and a note with a
+    # DOI used to be unreachable that way, so this created a duplicate
+    result = ObsidianSink(obsidian_cfg).write(
+        Paper(title='Modeling Crack Arrest in Snow Slab Avalanches'))
+
+    assert result.status == UPDATED
+    assert Path(result.ref) == Path(path)
+
+
+def test_a_title_match_never_overrides_a_known_identifier(obsidian_cfg):
+    first = Paper(title='Same Title', doi='10.1000/one')
+    ObsidianSink(obsidian_cfg).write(first)
+
+    # Both know their own DOI, so the title is never consulted and they
+    # stay two papers
+    second = ObsidianSink(obsidian_cfg).write(
+        Paper(title='Same Title', doi='10.1000/two'))
+
+    assert second.status == CREATED
+    assert Path(second.ref).name == 'Same Title (2).md'
+
+
 def test_two_distinct_papers_may_share_a_title(obsidian_cfg, paper):
     first = ObsidianSink(obsidian_cfg).write(paper)
     other = Paper(title=paper.title, doi='10.1000/completely-different')

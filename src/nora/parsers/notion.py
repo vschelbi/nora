@@ -22,7 +22,9 @@ ARXIV_URL = re.compile(
     r'arxiv\.org/(?:abs|pdf)/(?P<id>\d{4}\.\d{4,5}(?:v\d+)?|[a-z-]+(?:\.[A-Z]{2})?/\d{7})',
     re.IGNORECASE)
 DOI_URL = re.compile(
-    r'(?:doi\.org/|dx\.doi\.org/|/doi/(?:abs|full|pdf)/)(?P<id>10\.\d{4,9}/[^\s?#]+)',
+    # `/doi/10.1029/...` with nothing in between is what Wiley and AGU
+    # serve, so the abs/full/pdf segment cannot be required
+    r'(?:doi\.org/|dx\.doi\.org/|/doi/(?:[a-z]+/)?)(?P<id>10\.\d{4,9}/[^\s?#]+)',
     re.IGNORECASE)
 
 
