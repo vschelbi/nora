@@ -41,6 +41,11 @@ class Paper:
     topics: List[str] = field(default_factory=list)
     to_read: bool = True
 
+    # Which of your projects a paper serves. No reference manager knows
+    # this, so the parsers leave it empty and only a sync from a backend
+    # you curate by hand - Notion - ever fills it
+    projects: List[str] = field(default_factory=list)
+
     # Free text notes, and the format they are written in. Zotero child
     # notes are HTML, while the arXiv 'comment' field is plain text, so
     # sinks cannot guess and must be told

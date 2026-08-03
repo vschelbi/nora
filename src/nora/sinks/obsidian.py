@@ -394,10 +394,12 @@ class ObsidianLibrary:
         data[keys['topics']] = [
             self._link('topics', x) for x in paper.topics]
 
-        # Seeded empty, for you to fill in with the projects the paper
-        # belongs to. `_seeded_keys` keeps a re-upload from clearing it
+        # Empty for an upload, which cannot know which of your projects a
+        # paper serves, and filled by a sync from a backend where you say
+        # so. `_seeded_keys` keeps the former from clearing the latter
         if self.cfg.track_projects:
-            data[keys['projects']] = []
+            data[keys['projects']] = [
+                self._link('projects', x) for x in paper.projects]
 
         data[keys['url']] = paper.url or None
         data[keys['arxiv']] = paper.arxiv_id
@@ -557,10 +559,14 @@ class ObsidianLibrary:
             suffix += 1
             path = folder / f"{note_name} ({suffix}).md"
 
+        frontmatter = self.paper_frontmatter(paper)
         self._write_atomic(
-            path, self._compose(
-                self.paper_frontmatter(paper), self.paper_body(paper)))
+            path, self._compose(frontmatter, self.paper_body(paper)))
         self._register(paper, path)
+
+        # A note an upload creates has no projects to speak of, but one a
+        # sync creates arrives with the ones you assigned in Notion
+        self.create_linked_projects(frontmatter)
 
         return WriteResult(CREATED, ref=str(path))
 
@@ -572,9 +578,10 @@ class ObsidianLibrary:
                 SKIPPED, ref=str(path), message="note already exists")
 
         if self.cfg.on_existing == 'overwrite':
+            frontmatter = self.paper_frontmatter(paper)
             self._write_atomic(
-                path, self._compose(
-                    self.paper_frontmatter(paper), self.paper_body(paper)))
+                path, self._compose(frontmatter, self.paper_body(paper)))
+            self.create_linked_projects(frontmatter)
             return WriteResult(UPDATED, ref=str(path))
 
         with open(path, 'r', encoding='utf-8') as f:

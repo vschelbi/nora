@@ -106,12 +106,16 @@ def zotero_upload_command(to):
     help="Backend to sync to, repeatable. Defaults to every backend of "
          "your config other than Notion itself")
 @click.option(
+    "--projects", multiple=True, metavar="NAME",
+    help="Only sync the papers of this Notion project, repeatable. Quote "
+         "names that contain spaces: --projects \"PhD First Research\"")
+@click.option(
     "--dry-run", is_flag=True,
     help="Report what would change without writing anything")
 @click.option(
     "--create-missing/--no-create-missing", default=True,
     help="Create a note for a Notion paper your vault does not have yet")
-def notion_sync_command(to, dry_run: bool, create_missing: bool):
+def notion_sync_command(to, projects, dry_run: bool, create_missing: bool):
     """Carry what you curate in Notion over to your other backends.
 
     Notion owns the reading status and the topics of a paper; your vault
@@ -124,6 +128,7 @@ def notion_sync_command(to, dry_run: bool, create_missing: bool):
     sync_from_notion(
         cfg,
         to=to,
+        projects=projects,
         create_missing=create_missing,
         dry_run=dry_run,
         verbose=cfg.verbose)

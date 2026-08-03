@@ -18,12 +18,13 @@ SOURCE = 'notion'
 # while a sync is there precisely to carry them over. Everything else -
 # the title, the authors, the venue - is derived metadata that whichever
 # upload ran last is welcome to refresh
-AUTHORITATIVE = ('to_read', 'topics')
+AUTHORITATIVE = ('to_read', 'topics', 'projects')
 
 
 def sync_from_notion(
         cfg: OmegaConf,
         to=None,
+        projects=(),
         create_missing: bool=True,
         dry_run: bool=False,
         verbose: bool=True):
@@ -44,6 +45,9 @@ def sync_from_notion(
     sinks = get_sinks(destinations, cfg, authoritative=AUTHORITATIVE)
 
     papers = list(source)
+    if projects:
+        papers = _only_projects(papers, projects, verbose)
+
     if not create_missing:
         papers = [x for x in papers if _already_held(sinks, x)]
         if verbose:
@@ -76,6 +80,33 @@ def _destinations(cfg: OmegaConf, to=None):
         sys.exit(1)
 
     return destinations
+
+
+def _only_projects(papers, projects, verbose: bool=True):
+    """Keep the papers belonging to any of the named Notion projects.
+    """
+    wanted = {str(x).strip().lower() for x in projects if str(x).strip()}
+
+    # A name matching nothing is nearly always a typo or a quoting slip,
+    # and syncing nothing looks exactly like success
+    known = {
+        str(x).strip().lower(): str(x).strip()
+        for paper in papers for x in paper.projects}
+    for name in projects:
+        if str(name).strip().lower() not in known:
+            print(f"⚠️ No paper in Notion belongs to a project called '{name}'")
+            if known:
+                print(f"👉 Projects found: {', '.join(sorted(known.values()))}")
+
+    kept = [
+        x for x in papers
+        if any(str(p).strip().lower() in wanted for p in x.projects)]
+
+    if verbose:
+        names = ', '.join(str(x) for x in projects)
+        print(f"🏗️ {len(kept)} of {len(papers)} papers are in {names}")
+
+    return kept
 
 
 def _already_held(sinks, paper):

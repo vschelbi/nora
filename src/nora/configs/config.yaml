@@ -32,6 +32,11 @@ notion:
         year: 'Year'
         venue: '🤹 Venue'
 
+        # Read by `nora notion-sync` and never written: which project a
+        # paper serves is yours to decide, in Notion. Rename it to match
+        # your database, or leave it if you have no such column
+        projects: 'Projects'
+
     venue_keys:
         name: 'Name'
 

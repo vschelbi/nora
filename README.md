@@ -492,6 +492,10 @@ nora notion-sync                            # to every backend but Notion itself
 nora notion-sync --to obsidian              # or name it
 nora notion-sync --dry-run                  # report, change nothing
 nora notion-sync --no-create-missing        # only refresh what you already have
+
+# only the papers of one project — quote names containing spaces
+nora notion-sync --projects "PhD First Research"
+nora notion-sync --projects "PhD First Research" --projects "Reading group"
 ```
 
 `--to` defaults to whatever your `backend` names, minus Notion — so with
@@ -502,13 +506,31 @@ reconciling edits, and the way that fails is by quietly losing one of them. So:
 
 | Owned by Notion, overwritten in your vault | Owned by your vault, never touched by a sync |
 |---|---|
-| `reading_status` — `Done` if your Notion status is Done, `Not started` for every other state | `projects` — what you assign in Obsidian |
-| `topics` (and `tags`, if `topics_as_tags` is on) | anything you wrote outside the `%% nora %%` markers |
-| the derived metadata: authors, venue, year, abstract | any property NoRA does not manage |
+| `reading_status` — `Done` if your Notion status is Done, `Not started` for every other state | anything you wrote outside the `%% nora %%` markers |
+| `topics` (and `tags`, if `topics_as_tags` is on) | any property NoRA does not manage |
+| `projects` — the `Projects` relation of your Notion database | your project *notes*: their name and type are written once, the rest is yours |
+| the derived metadata: authors, venue, year, abstract | |
 
-Removing a topic in Notion removes it in Obsidian — that is the point of an owner. 
-An ordinary `nora url` upload still leaves both alone, because the arXiv knows 
-nothing about either.
+Removing a topic or a project in Notion removes it in Obsidian — that is the point 
+of an owner. An ordinary `nora url` upload still leaves all three alone, because the 
+arXiv knows nothing about any of them.
+
+**Projects are read, never written.** NoRA does not fill the `Projects` relation on 
+upload, in either backend: you assign it in Notion, and the sync carries it over, 
+creating a note in `Projects/` for each one so the graph and the backlinks fill in. 
+The relation is resolved one project page at a time and remembered, so it costs a 
+request per distinct project rather than one per paper, and needs no database id in 
+your config. If your column is not called `Projects`, rename it under 
+`notion.paper_keys.projects`.
+
+Restricting a sync to one project is the same read either way — the whole database 
+is fetched regardless — but it keeps a run to the papers you care about, and a name 
+matching nothing says so rather than silently syncing zero papers:
+
+```
+⚠️ No paper in Notion belongs to a project called 'PhD Frist Research'
+👉 Projects found: PhD First Research, Reading group
+```
 
 Every author, venue and topic new to your vault gets its note, so the graph and 
 the backlinks fill in as you sync. Papers in Notion that your vault has never seen 

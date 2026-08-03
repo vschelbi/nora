@@ -62,6 +62,11 @@ class _FakeLibrary:
     def get_topics(self):
         return self.pages['topics']
 
+    def retrieve_page_from_id(self, page_id):
+        # Projects are not read in bulk: they are resolved one id at a
+        # time, so this is the path a Projects relation goes through
+        return self.pages['projects'][page_id]
+
 
 # ----------------------------------------------------------------------
 #  Reading Notion properties
@@ -232,27 +237,128 @@ def test_a_sync_may_clear_a_topic_you_removed_in_notion(
     assert frontmatter['topics'] == []
 
 
-def test_a_sync_leaves_your_projects_and_your_writing_alone(
+def test_a_sync_leaves_your_writing_alone(
         cfg, source, obsidian_cfg, monkeypatch):
     monkeypatch.setattr('nora.sync.NotionSource', lambda cfg, verbose: source)
     cfg.obsidian = obsidian_cfg
 
     paper = Paper(title='Attention Is All You Need', arxiv_id='1706.03762')
     path = ObsidianSink(obsidian_cfg).write(paper).ref
-
-    frontmatter, body = ObsidianLibrary._split_note(read(path))
-    frontmatter['projects'] = ['[[Projects/Thesis|Thesis]]']
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(
-            f"---\n{ObsidianLibrary._dump_frontmatter(frontmatter)}---\n\n"
-            f"{body}\n## My own thoughts\n\nDo not delete me.\n")
+    with open(path, 'a', encoding='utf-8') as f:
+        f.write("\n## My own thoughts\n\nDo not delete me.\n")
 
     sync_from_notion(cfg, to=('obsidian',), verbose=False)
 
-    text = read(path)
-    frontmatter, _ = ObsidianLibrary._split_note(text)
-    assert frontmatter['projects'] == ['[[Projects/Thesis|Thesis]]']
-    assert 'Do not delete me.' in text
+    assert 'Do not delete me.' in read(path)
+
+
+# ----------------------------------------------------------------------
+#  Projects
+# ----------------------------------------------------------------------
+def test_projects_are_read_from_a_two_way_relation(source):
+    done, hot, unset = list(source)
+
+    # Resolved one page at a time, since a Projects database is not one of
+    # the three NoRA reads in bulk
+    assert done.projects == ['PhD First Research']
+    assert hot.projects == ['PhD First Research', 'Reading group']
+    assert unset.projects == []
+
+
+def test_a_project_page_that_cannot_be_read_is_skipped(source):
+    source.library.pages['projects'].pop('proj-2')
+
+    # An integration without access to the Projects database loses the
+    # projects, not the sync
+    assert list(source)[1].projects == ['PhD First Research']
+
+
+def test_sync_carries_the_projects_over_and_creates_their_notes(
+        cfg, source, obsidian_cfg, monkeypatch):
+    monkeypatch.setattr('nora.sync.NotionSource', lambda cfg, verbose: source)
+    cfg.obsidian = obsidian_cfg
+
+    sync_from_notion(cfg, to=('obsidian',), verbose=False)
+
+    vault = Path(obsidian_cfg.vault_path)
+    frontmatter, _ = ObsidianLibrary._split_note(
+        read(vault / 'Papers' / 'Segment Any Point Cloud.md'))
+
+    assert frontmatter['projects'] == [
+        '[[Projects/PhD First Research|PhD First Research]]',
+        '[[Projects/Reading group|Reading group]]']
+    # And each project gets its note, so the graph and backlinks work
+    assert (vault / 'Projects' / 'PhD First Research.md').is_file()
+    assert (vault / 'Projects' / 'Reading group.md').is_file()
+
+
+def test_a_project_removed_in_notion_is_removed_here(
+        cfg, source, obsidian_cfg, monkeypatch):
+    monkeypatch.setattr('nora.sync.NotionSource', lambda cfg, verbose: source)
+    cfg.obsidian = obsidian_cfg
+
+    # 'No Status Set' belongs to no project in Notion
+    paper = Paper(title='No Status Set', projects=['Dropped Since'])
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+
+    sync_from_notion(cfg, to=('obsidian',), verbose=False)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    # Notion owns them now, so absence really is deletion
+    assert frontmatter['projects'] == []
+
+
+def test_only_the_papers_of_one_project_are_synced(
+        cfg, source, obsidian_cfg, monkeypatch):
+    monkeypatch.setattr('nora.sync.NotionSource', lambda cfg, verbose: source)
+    cfg.obsidian = obsidian_cfg
+
+    counts = sync_from_notion(
+        cfg, to=('obsidian',), projects=('Reading group',), verbose=False)
+
+    papers = sorted(
+        x.stem for x in (Path(obsidian_cfg.vault_path) / 'Papers').glob('*.md'))
+    assert counts == {'obsidian': {CREATED: 1}}
+    assert papers == ['Segment Any Point Cloud']
+
+
+def test_a_project_filter_ignores_case_and_padding(
+        cfg, source, obsidian_cfg, monkeypatch):
+    monkeypatch.setattr('nora.sync.NotionSource', lambda cfg, verbose: source)
+    cfg.obsidian = obsidian_cfg
+
+    counts = sync_from_notion(
+        cfg, to=('obsidian',), projects=('  phd FIRST research ',),
+        verbose=False)
+
+    assert counts == {'obsidian': {CREATED: 2}}
+
+
+def test_several_projects_may_be_named(
+        cfg, source, obsidian_cfg, monkeypatch):
+    monkeypatch.setattr('nora.sync.NotionSource', lambda cfg, verbose: source)
+    cfg.obsidian = obsidian_cfg
+
+    counts = sync_from_notion(
+        cfg, to=('obsidian',),
+        projects=('Reading group', 'PhD First Research'), verbose=False)
+
+    assert counts == {'obsidian': {CREATED: 2}}
+
+
+def test_a_project_name_that_matches_nothing_says_so(
+        cfg, source, obsidian_cfg, monkeypatch, capsys):
+    monkeypatch.setattr('nora.sync.NotionSource', lambda cfg, verbose: source)
+    cfg.obsidian = obsidian_cfg
+
+    counts = sync_from_notion(
+        cfg, to=('obsidian',), projects=('PhD Frist Research',), verbose=False)
+
+    out = capsys.readouterr().out
+    # Syncing nothing looks exactly like success, so a typo has to be loud
+    assert 'No paper in Notion belongs to a project' in out
+    assert 'PhD First Research' in out
+    assert counts == {'obsidian': {}}
 
 
 def test_topics_become_tags_when_you_ask_for_them(
@@ -271,7 +377,7 @@ def test_topics_become_tags_when_you_ask_for_them(
 
 def test_what_notion_owns_is_declared_in_one_place():
     # The fields a sync may overwrite and an upload may not
-    assert AUTHORITATIVE == ('to_read', 'topics')
+    assert AUTHORITATIVE == ('to_read', 'topics', 'projects')
 
 
 # ----------------------------------------------------------------------
