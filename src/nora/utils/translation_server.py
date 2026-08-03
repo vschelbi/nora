@@ -130,7 +130,7 @@ def start_server(patience: float=10, timestep: float=0.25):
             f"{get_node_version()}. Either install node >=20.19, or "
             f"reinstall NoRA to get the pinned translation server revision:"
             f"\n     pip install --force-reinstall "
-            f"git+https://github.com/drprojects/nora.git")
+            f"git+https://github.com/vschelbi/nora.git")
 
     sys.exit(1)
 

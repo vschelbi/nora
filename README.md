@@ -337,7 +337,7 @@ Keep these safe somewhere, we will need these in a bit!
 ### Installing NoRA-Tools on your machine
 Open a terminal and run
 ```bash
-pip install git+https://github.com/drprojects/nora.git
+pip install git+https://github.com/vschelbi/nora.git
 ```
 
 <details>
@@ -347,7 +347,7 @@ If you want to extend NoRA-Tools to your need, you can install from source:
 
 ```bash
 # Get the source code
-git clone https://github.com/drprojects/nora
+git clone https://github.com/vschelbi/nora
 
 # Install the python dependencies. This also clones the pinned revision
 # of the translation server into src/nora/translation_server and
