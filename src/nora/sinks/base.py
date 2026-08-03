@@ -46,13 +46,27 @@ class Sink(ABC):
 
     name = ''
 
-    def __init__(self, cfg: OmegaConf):
+    def __init__(self, cfg: OmegaConf, authoritative=()):
         self.cfg = cfg
+
+        # Logical `paper_keys` names the caller is the source of truth
+        # for. A backend that merges with what it already holds honours
+        # these; one that only ever creates has nothing to merge and may
+        # ignore them
+        self.authoritative = frozenset(authoritative)
 
     @abstractmethod
     def write(self, paper: Paper) -> WriteResult:
         """Write a paper to this backend, notes included.
         """
+
+    def has_paper(self, paper: Paper):
+        """Whether this backend already holds a paper.
+
+        `None` means it cannot tell cheaply, which callers must read as
+        'do not assume it is missing' rather than as a no.
+        """
+        return None
 
     def __repr__(self):
         return f"{self.__class__.__name__}()"

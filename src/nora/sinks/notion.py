@@ -272,7 +272,9 @@ class NotionLibrary:
             abstract: str=None,
             url: str=None,
             year: Optional[int]=None,
-            venue: str=None):
+            venue: str=None,
+            doi: str=None,
+            arxiv_id: str=None):
 
         # Skip if paper already exists in the database
         name = name[:self.cfg.max_text_length]
@@ -315,6 +317,16 @@ class NotionLibrary:
         # Year
         if year is not None:
             data[self.cfg.paper_keys['year']] = {'number': year}
+
+        # Identifiers, but only into columns you have told NoRA about.
+        # The NoRA template has none, and writing a property a database
+        # does not have is rejected by the Notion API, so these stay out
+        # of the shipped `paper_keys` and are opt-in
+        for key, value in (('doi', doi), ('arxiv', arxiv_id)):
+            property_name = self.cfg.paper_keys.get(key)
+            if property_name and value:
+                data[property_name] = {'rich_text': [
+                    {'text': {'content': str(value)[:self.cfg.max_text_length]}}]}
 
         # Venue
         if venue is not None:
@@ -454,8 +466,8 @@ class NotionSink(Sink):
 
     name = 'notion'
 
-    def __init__(self, cfg: OmegaConf):
-        super().__init__(cfg)
+    def __init__(self, cfg: OmegaConf, authoritative=()):
+        super().__init__(cfg, authoritative=authoritative)
         self.library = NotionLibrary(cfg)
 
     def write(self, paper: Paper):
@@ -467,7 +479,9 @@ class NotionSink(Sink):
             abstract=paper.abstract,
             url=paper.url,
             year=paper.year,
-            venue=paper.venue)
+            venue=paper.venue,
+            doi=paper.doi,
+            arxiv_id=paper.arxiv_id)
 
         # create_paper returns None when a same-titled page already
         # exists in the database

@@ -90,10 +90,16 @@ class ObsidianLibrary:
     externally-created files on its own.
     """
 
-    def __init__(self, cfg: OmegaConf):
+    def __init__(self, cfg: OmegaConf, authoritative=()):
         sanity_check_config(cfg, ['vault_path'], ['obsidian_vault_path'])
 
         self.cfg = cfg
+
+        # Logical `paper_keys` names whose value the caller knows better
+        # than the note does. A Notion sync owns your reading status and
+        # your topics; an upload from the arXiv owns neither, and must
+        # leave both alone
+        self.authoritative = frozenset(authoritative)
         self.vault = Path(os.path.expanduser(str(cfg.vault_path))).resolve()
 
         if self.vault.exists() and not self.vault.is_dir():
@@ -302,7 +308,7 @@ class ObsidianLibrary:
 
         return index
 
-    def _find_note(self, paper: Paper):
+    def find_note(self, paper: Paper):
         """The note of an already-uploaded paper, or None. Any identity the
         paper is known by is enough to find it.
         """
@@ -414,6 +420,19 @@ class ObsidianLibrary:
 
         return data
 
+    def _authoritative_keys(self):
+        """The frontmatter keys the caller is authoritative for.
+        """
+        keys = self.cfg.paper_keys
+        owned = {keys[k] for k in self.authoritative if k in keys}
+
+        # Tags are written from the topics, so whoever owns those owns
+        # these: clearing a topic in Notion has to clear its tag too
+        if 'topics' in self.authoritative:
+            owned.add('tags')
+
+        return owned
+
     def _seeded_keys(self):
         """Frontmatter keys NoRA writes once on a new paper note and never
         touches again, because their content is yours to decide.
@@ -425,7 +444,12 @@ class ObsidianLibrary:
         keys = [self.cfg.paper_keys['to_read']]
         if self.cfg.track_projects:
             keys.append(self.cfg.paper_keys['projects'])
-        return keys
+
+        # Seeded only for a caller that cannot know better. A sync that
+        # reads your reading status from Notion is there precisely to
+        # write it
+        owned = self._authoritative_keys()
+        return [k for k in keys if k not in owned]
 
     def create_linked_projects(self, frontmatter: Dict):
         """Create the note of every project a paper links to.
@@ -517,7 +541,7 @@ class ObsidianLibrary:
         # A paper already uploaded may since have been renamed, or the
         # filename template may have changed, so the identities recorded
         # in the frontmatter are what we search on first
-        path = self._find_note(paper)
+        path = self.find_note(paper)
         if path is not None:
             return self._update_paper(paper, path)
 
@@ -573,7 +597,12 @@ class ObsidianLibrary:
         # gives no topics at all, and it should not clear the ones you or
         # a Zotero collection put there. A field that does arrive with a
         # value still refreshes the note
+        # A field its owner reports as empty really is empty, though:
+        # otherwise a topic removed in Notion could never be removed here
+        owned = self._authoritative_keys()
         for key, value in list(refreshed.items()):
+            if key in owned:
+                continue
             if _is_empty(value) and not _is_empty(frontmatter.get(key)):
                 refreshed.pop(key)
 
@@ -608,9 +637,12 @@ class ObsidianSink(Sink):
 
     name = 'obsidian'
 
-    def __init__(self, cfg: OmegaConf):
-        super().__init__(cfg)
-        self.library = ObsidianLibrary(cfg)
+    def __init__(self, cfg: OmegaConf, authoritative=()):
+        super().__init__(cfg, authoritative=authoritative)
+        self.library = ObsidianLibrary(cfg, authoritative=authoritative)
+
+    def has_paper(self, paper: Paper):
+        return self.library.find_note(paper) is not None
 
     def write(self, paper: Paper):
         try:

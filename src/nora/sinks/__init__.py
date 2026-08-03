@@ -20,7 +20,7 @@ SINKS = {
     'obsidian': ObsidianSink}
 
 
-def get_sink(name: str, cfg: OmegaConf):
+def get_sink(name: str, cfg: OmegaConf, authoritative=()):
     """Instantiate a write backend from its name. The backend-specific
     section of the config is passed to it, so it only ever sees - and
     only ever validates - its own keys.
@@ -30,10 +30,10 @@ def get_sink(name: str, cfg: OmegaConf):
             f"🛑 Unknown backend '{name}'. Available backends: "
             f"{', '.join(sorted(SINKS))}")
         sys.exit(1)
-    return SINKS[name](cfg.get(name))
+    return SINKS[name](cfg.get(name), authoritative=authoritative)
 
 
-def get_sinks(names: List[str], cfg: OmegaConf):
+def get_sinks(names: List[str], cfg: OmegaConf, authoritative=()):
     """Instantiate several write backends at once, in the order given.
 
     All of them are built upfront: a backend whose keys are missing exits
@@ -45,4 +45,4 @@ def get_sinks(names: List[str], cfg: OmegaConf):
             "🛑 No backend to write to. Set `backend` in your "
             "~/.nora/user.yaml, or pass `--to`")
         sys.exit(1)
-    return [get_sink(name, cfg) for name in names]
+    return [get_sink(name, cfg, authoritative=authoritative) for name in names]

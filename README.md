@@ -481,6 +481,79 @@ other backend nor the rest of the upload. Re-running the same command later
 picks up what was missed, since both backends recognize the papers they already 
 hold rather than duplicating them.
 
+### Syncing Notion to Obsidian
+
+If you read and take notes in Notion but want Obsidian's graph view and links, 
+you do not have to write in both. Curate in Notion, and carry what you curated 
+across:
+
+```bash
+nora notion-sync                            # to every backend but Notion itself
+nora notion-sync --to obsidian              # or name it
+nora notion-sync --dry-run                  # report, change nothing
+nora notion-sync --no-create-missing        # only refresh what you already have
+```
+
+`--to` defaults to whatever your `backend` names, minus Notion — so with
+`backend: [notion, obsidian]` a bare `nora notion-sync` does the obvious thing.
+
+**One direction, and one owner per field.** Making both sides writable means 
+reconciling edits, and the way that fails is by quietly losing one of them. So:
+
+| Owned by Notion, overwritten in your vault | Owned by your vault, never touched by a sync |
+|---|---|
+| `reading_status` — `Done` if your Notion status is Done, `Not started` for every other state | `projects` — what you assign in Obsidian |
+| `topics` (and `tags`, if `topics_as_tags` is on) | anything you wrote outside the `%% nora %%` markers |
+| the derived metadata: authors, venue, year, abstract | any property NoRA does not manage |
+
+Removing a topic in Notion removes it in Obsidian — that is the point of an owner. 
+An ordinary `nora url` upload still leaves both alone, because the arXiv knows 
+nothing about either.
+
+Every author, venue and topic new to your vault gets its note, so the graph and 
+the backlinks fill in as you sync. Papers in Notion that your vault has never seen 
+are created from the Notion properties directly — no Zotero translation server, no 
+dependence on the URL resolving. `--no-create-missing` turns that off if you only 
+want to refresh what is already there.
+
+**How a Notion page finds its note.** NoRA matches on identifiers, not titles, 
+where it can. A paper's `URL` gives one away if it points at arxiv.org or doi.org; 
+otherwise the fallback is the title, which breaks if you have edited one on either 
+side. Adding `DOI` and `arXiv` properties to your Notion Papers database, and 
+naming them in your config, makes the match exact:
+
+````yaml
+notion:
+    paper_keys:
+        doi: 'DOI'
+        arxiv: 'arXiv'
+````
+
+Both are optional and unset by default. Once named, NoRA fills them on every 
+upload and reads them on every sync; leave them out and it never touches them, so 
+nothing breaks if your database has neither. Make them **Text** properties — a bare 
+DOI or `1706.03762` is not a valid URL, and a URL column would reject the write.
+
+Papers already in Notion keep them blank until you re-upload those papers: the sync 
+deliberately never writes back into Notion.
+
+What a run looks like:
+
+```
+📖 Read 3 papers from Notion
+🔗 Resolved 5 authors, venues and topics
+[1] 🔄 updated: 'Attention Is All You Need' (Done; Transformers, 3D vision)
+[2] ✅ created: 'Segment Any Point Cloud' (Not started; 3D vision)
+[3] ⏭️ missing: 'No Status Set' (not in your vault)
+📚 1 created, 1 missing, 1 updated
+```
+
+> **Note**: the note *bodies* are not mirrored. Notion blocks lose too much on the 
+> way to Markdown — toggles, callouts, synced blocks, inline databases, equations — 
+> and the point of this setup is that you keep writing in Notion. Each Obsidian 
+> note carries the paper's `url`, so it is a graph node one click from where the 
+> writing lives.
+
 ### Advanced usage
 
 You can further customize the behavior of NoRA-Tools by manually editing
