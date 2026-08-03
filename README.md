@@ -523,6 +523,12 @@ request per distinct project rather than one per paper, and needs no database id
 your config. If your column is not called `Projects`, rename it under 
 `notion.paper_keys.projects`.
 
+A sync reads every relation before it writes anything, and a page it cannot reach 
+stops the run rather than being taken for an empty answer — a dropped connection 
+would otherwise strip the project from every note that has it, since Notion owns 
+the field. Nothing is written in that case, so re-running once Notion is reachable 
+is all it takes.
+
 Restricting a sync to one project is the same read either way — the whole database 
 is fetched regardless — but it keeps a run to the papers you care about, and a name 
 matching nothing says so rather than silently syncing zero papers:

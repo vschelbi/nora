@@ -2,7 +2,7 @@ import sys
 from omegaconf import OmegaConf
 
 from nora.parsers.notion import NotionSource
-from nora.sinks import get_sinks
+from nora.sinks import get_sinks, SinkError
 from nora.sinks.base import CREATED, UPDATED
 from nora.upload import resolve_backends, upload_papers
 
@@ -44,7 +44,16 @@ def sync_from_notion(
     # that it overwrites what an ordinary upload has to leave alone
     sinks = get_sinks(destinations, cfg, authoritative=AUTHORITATIVE)
 
-    papers = list(source)
+    # Read everything before writing anything, so that a backend which
+    # goes unreachable halfway through costs a run rather than a partly
+    # synced vault
+    try:
+        papers = list(source)
+    except SinkError as e:
+        print(f"❌ Notion: {e}")
+        print("👉 Nothing was written. Try again once Notion is reachable")
+        sys.exit(1)
+
     if projects:
         papers = _only_projects(papers, projects, verbose)
 

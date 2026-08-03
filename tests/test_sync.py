@@ -6,7 +6,7 @@ from nora.paper import Paper
 from nora.parsers.notion import (
     NotionSource, decode_property, identifiers_from_url)
 from nora.sinks import ObsidianSink
-from nora.sinks.base import CREATED, UPDATED
+from nora.sinks.base import CREATED, UPDATED, SinkError
 from nora.sinks.obsidian import ObsidianLibrary
 from nora.sync import AUTHORITATIVE, SOURCE, sync_from_notion
 
@@ -265,12 +265,32 @@ def test_projects_are_read_from_a_two_way_relation(source):
     assert unset.projects == []
 
 
-def test_a_project_page_that_cannot_be_read_is_skipped(source):
+def test_a_project_page_that_cannot_be_read_stops_everything(source):
     source.library.pages['projects'].pop('proj-2')
 
-    # An integration without access to the Projects database loses the
-    # projects, not the sync
-    assert list(source)[1].projects == ['PhD First Research']
+    # Silently dropping it would read a failure to ask as an answer, and
+    # since Notion owns the field, absence deletes: a dropped connection
+    # would undo your curation across every note mentioning that project
+    with pytest.raises(SinkError) as e:
+        list(source)
+
+    assert 'cannot be trusted' in str(e.value)
+
+
+def test_nothing_is_written_when_a_project_cannot_be_resolved(
+        cfg, source, obsidian_cfg, monkeypatch, capsys):
+    monkeypatch.setattr('nora.sync.NotionSource', lambda cfg, verbose: source)
+    cfg.obsidian = obsidian_cfg
+    source.library.pages['projects'].pop('proj-1')
+
+    with pytest.raises(SystemExit) as e:
+        sync_from_notion(cfg, to=('obsidian',), verbose=False)
+
+    assert e.value.code == 1
+    assert 'Nothing was written' in capsys.readouterr().out
+    # Relations are resolved before the first write, so the vault is
+    # untouched rather than half synced
+    assert not list((Path(obsidian_cfg.vault_path) / 'Papers').glob('*.md'))
 
 
 def test_sync_carries_the_projects_over_and_creates_their_notes(

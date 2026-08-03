@@ -3,6 +3,7 @@ from omegaconf import OmegaConf
 from typing import Dict, List, Optional
 
 from nora.paper import Paper, normalize_abstract
+from nora.sinks.base import SinkError
 from nora.sinks.notion import NotionLibrary
 
 
@@ -141,15 +142,25 @@ class _RelatedNames(dict):
         self.library = library
 
     def __missing__(self, page_id):
+        """Resolve a related page, or stop the sync.
+
+        Failing to reach a page is not an answer about it. Treating it as
+        'this project does not exist' would strip the project from every
+        note that has it, because Notion owns that field and absence is
+        deletion for an owner - so a dropped connection would quietly
+        undo your curation. Nothing has been written by the time relations
+        are resolved, so refusing here costs a run and no data.
+        """
         try:
             page = self.library.retrieve_page_from_id(page_id)
-            title = page_title(page)
-        except Exception:
-            # A page the integration cannot read is not worth losing the
-            # rest of the sync over. Remembered as unknown, so it is not
-            # asked for again
-            title = None
+        except Exception as e:
+            raise SinkError(
+                f"could not read the related Notion page {page_id}, so the "
+                f"projects of your papers cannot be trusted ({e})")
 
+        # A page that reads fine but carries no title is a real answer,
+        # and simply relates to nothing nameable
+        title = page_title(page)
         self[page_id] = title
         return title
 
