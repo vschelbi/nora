@@ -303,6 +303,59 @@ def test_projects_can_be_turned_off(obsidian_cfg, paper):
     assert not (Path(obsidian_cfg.vault_path) / 'Projects').exists()
 
 
+def test_a_project_the_upload_brings_is_linked_on_a_new_note(obsidian_cfg, paper):
+    paper.projects = ['Thesis chapter 3']
+    result = ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(result.ref))
+    note = Path(obsidian_cfg.vault_path) / 'Projects' / 'Thesis chapter 3.md'
+
+    assert frontmatter['projects'] == [
+        '[[Projects/Thesis chapter 3|Thesis chapter 3]]']
+    assert note.is_file()
+
+
+def test_a_project_the_upload_brings_is_added_to_the_assigned_ones(
+        obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    assign_projects(path, ['[[Reading group]]'])
+
+    paper.projects = ['Thesis']
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['projects'] == [
+        '[[Reading group]]', '[[Projects/Thesis|Thesis]]']
+
+
+@pytest.mark.parametrize('value', [
+    ['[[Thesis]]'],
+    ['[[Projects/thesis|thesis]]'],
+    '[[Projects/Thesis]]',
+])
+def test_a_project_already_linked_is_not_added_twice(obsidian_cfg, paper, value):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    assign_projects(path, value)
+
+    paper.projects = ['Thesis']
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    # Left exactly as you wrote it, whatever the link style or the case
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['projects'] == value
+
+
+def test_a_project_is_added_to_an_emptied_property(obsidian_cfg, paper):
+    path = ObsidianSink(obsidian_cfg).write(paper).ref
+    assign_projects(path, None)
+
+    paper.projects = ['Thesis']
+    ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(path))
+    assert frontmatter['projects'] == ['[[Projects/Thesis|Thesis]]']
+
+
 def test_overwrite_clears_assigned_projects(obsidian_cfg, paper):
     path = ObsidianSink(obsidian_cfg).write(paper).ref
     assign_projects(path, ['[[Projects/Thesis|Thesis]]'])

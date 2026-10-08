@@ -408,8 +408,9 @@ class ObsidianLibrary:
             self._link('topics', x) for x in paper.topics]
 
         # Empty for an upload, which cannot know which of your projects a
-        # paper serves, and filled by a sync from a backend where you say
-        # so. `_seeded_keys` keeps the former from clearing the latter
+        # paper serves - unless you added it with a `default_project` -
+        # and filled by a sync from a backend where you say so.
+        # `_seeded_keys` keeps the former from clearing the latter
         if self.cfg.track_projects:
             data[keys['projects']] = [
                 self._link('projects', x) for x in paper.projects]
@@ -577,8 +578,9 @@ class ObsidianLibrary:
             path, self._compose(frontmatter, self.paper_body(paper)))
         self._register(paper, path)
 
-        # A note an upload creates has no projects to speak of, but one a
-        # sync creates arrives with the ones you assigned in Notion
+        # A note an upload creates has no projects to speak of, bar your
+        # `default_project`, but one a sync creates arrives with the ones
+        # you assigned in Notion
         self.create_linked_projects(frontmatter)
 
         return WriteResult(CREATED, ref=str(path))
@@ -607,9 +609,16 @@ class ObsidianLibrary:
 
         # Except for the ones NoRA merely seeds: the projects you assigned
         # a paper to, and the reading status you set, would otherwise be
-        # reset by every re-upload
+        # reset by every re-upload. A project the upload does bring - your
+        # `default_project` - is added to the ones you assigned, though
+        projects = self.cfg.paper_keys['projects']
         for key in self._seeded_keys():
-            if key in frontmatter:
+            if key not in frontmatter:
+                continue
+            if key == projects:
+                refreshed[key] = _add_links(
+                    frontmatter[key], refreshed.get(key))
+            else:
                 refreshed.pop(key, None)
 
         # Absence is not deletion. An upload that knows nothing of a field
@@ -731,6 +740,27 @@ def _wikilink_names(value):
 
     # The same project may well be linked twice in one property
     return list(dict.fromkeys(names))
+
+
+def _add_links(value, links):
+    """A frontmatter property with `links` appended to it, leaving out the
+    ones it already links to.
+
+    The property is returned untouched when there is nothing to add, so
+    that a single value you wrote by hand is not turned into a list for no
+    reason. Two links pointing at the same note are the same link whatever
+    their style, and Obsidian resolves note names regardless of case.
+    """
+    known = {x.casefold() for x in _wikilink_names(value)}
+    added = [
+        x for x in links or []
+        if not {y.casefold() for y in _wikilink_names(x)} & known]
+    if not added:
+        return value
+
+    values = list(value) if isinstance(value, (list, tuple)) else (
+        [] if _is_empty(value) else [value])
+    return values + added
 
 
 def _citekey(paper: Paper):

@@ -228,7 +228,8 @@ which NoRA prefers over an arXiv id — is still the same paper and keeps its no
 - **Projects and the reading status are yours.** These two properties NoRA writes 
 once and never touches again, because no source it reads from knows which of your 
 projects a paper serves or whether you have read it. Re-uploading a paper you have 
-marked `Done` leaves it `Done`. See 
+marked `Done` leaves it `Done`, and the most a re-upload does to your projects is 
+add your `default_project`. See 
 [assigning papers to projects](#assigning-papers-to-projects) below.
 - **An upload that knows less never erases more.** Refreshing a note only sets the 
 properties the upload actually carries a value for. The arXiv reports no topics, so 
@@ -260,8 +261,9 @@ What it does instead is get out of your way:
 
 - every new paper note gets an empty `projects` property, so it is already in the 
 properties panel waiting to be filled
-- whatever you put there **survives every re-upload**. This is the one property 
-NoRA seeds and then never touches again
+- whatever you put there **survives every re-upload**. NoRA never removes or 
+rewrites a project you linked; the only thing it ever adds is your 
+[`default_project`](#assigning-papers-to-projects), if you set one
 - each project you link to gets a note of its own in `Projects/`, created on the 
 next upload of any paper pointing at it
 
@@ -307,6 +309,30 @@ plan, the deadline or the draft that goes with the project.
 - `on_existing: 'overwrite'` does what it says and replaces the whole note, 
 projects included. Use the default `'update'` if you assign projects by hand — 
 which is the whole point of the property.
+
+If most of what you add serves one project, name it once instead of linking it 
+on every note:
+
+````yaml
+obsidian:
+    default_project: Thesis chapter 3
+````
+
+Every paper you add with `nora url` or `nora id` is then linked to 
+`[[Projects/Thesis chapter 3|Thesis chapter 3]]`, and the project gets its note. 
+On a paper already in your vault the project is *added* to the ones you assigned, 
+never put in their place, and a project the note already links to — in any link 
+style — is not linked twice. `nora zotero-upload` and `nora notion-sync` ignore 
+it: a whole library does not all belong to the project you happen to be working 
+on. Change or empty it whenever you move on to something else.
+
+For the odd paper that belongs elsewhere, name its project when you add it. That 
+project is used *instead of* the default, and `--project` can be repeated:
+
+````bash
+nora url https://arxiv.org/abs/1706.03762 --project "Reading group"
+nora id 10.1145/3065386 --project Survey --project "Thesis chapter 3"
+````
 
 Set `track_projects: False` in the `obsidian` section of your `~/.nora/user.yaml` 
 if you would rather not have any of this: no property on paper notes, and no 

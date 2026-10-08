@@ -2,7 +2,7 @@ import click
 
 from nora import __version__
 from nora.sinks import SINKS
-from nora.upload import upload_paper, upload_papers
+from nora.upload import add_projects, upload_paper, upload_papers
 from nora.sync import sync_from_notion
 from nora.utils.config import load_config, configure_user_config
 from nora.parsers.zotero import ZoteroLibrary, ZoteroItem
@@ -11,6 +11,11 @@ from nora.parsers.zotero import ZoteroLibrary, ZoteroItem
 BACKEND_HELP = (
     "Backend to write to, repeatable. Overrides the `backend` of your "
     "config")
+
+PROJECT_HELP = (
+    "Obsidian project to link the paper to, repeatable. Replaces the "
+    "`obsidian.default_project` of your config. Quote names that contain "
+    "spaces: --project \"My insanely cool Project\"")
 
 
 @click.group()
@@ -37,7 +42,8 @@ def configure():
 @click.option(
     "--to", type=click.Choice(sorted(SINKS)), multiple=True,
     help=BACKEND_HELP)
-def url_command(url: str, to):
+@click.option("--project", multiple=True, metavar="NAME", help=PROJECT_HELP)
+def url_command(url: str, to, project):
     """Process a paper from its URL (e.g., arXiv, DOI)."""
     cfg = load_config()
 
@@ -46,7 +52,8 @@ def url_command(url: str, to):
 
     # Upload data to NoRA
     if item is not None:
-        upload_paper(item.to_paper(), cfg, verbose=cfg.verbose, to=to)
+        paper = add_projects(item.to_paper(), cfg, project)
+        upload_paper(paper, cfg, verbose=cfg.verbose, to=to)
 
 
 # -------------------------------------------------------------------------
@@ -57,7 +64,8 @@ def url_command(url: str, to):
 @click.option(
     "--to", type=click.Choice(sorted(SINKS)), multiple=True,
     help=BACKEND_HELP)
-def id_command(id: str, to):
+@click.option("--project", multiple=True, metavar="NAME", help=PROJECT_HELP)
+def id_command(id: str, to, project):
     """Process a paper from an identifier (DOI, ISBN, PMID, arXiv ID)."""
     cfg = load_config()
 
@@ -66,7 +74,8 @@ def id_command(id: str, to):
 
     # Upload data to NoRA
     if item is not None:
-        upload_paper(item.to_paper(), cfg, verbose=cfg.verbose, to=to)
+        paper = add_projects(item.to_paper(), cfg, project)
+        upload_paper(paper, cfg, verbose=cfg.verbose, to=to)
 
 
 # -------------------------------------------------------------------------

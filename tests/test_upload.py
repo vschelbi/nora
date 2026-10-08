@@ -1,7 +1,9 @@
+import pytest
 from omegaconf import OmegaConf
 
 from nora.paper import Paper
-from nora.upload import resolve_backends, upload_paper, upload_papers
+from nora.upload import (
+    resolve_backends, add_projects, upload_paper, upload_papers)
 
 from conftest import RecordingSink
 
@@ -39,6 +41,43 @@ def test_resolve_backends_drops_duplicates(cfg):
 def test_resolve_backends_defaults_to_notion():
     # An existing user's config predates the `backend` key
     assert resolve_backends(OmegaConf.create({'verbose': True})) == ['notion']
+
+
+def test_no_default_project_leaves_the_paper_alone(cfg, paper):
+    assert add_projects(paper, cfg).projects == []
+
+
+def test_the_default_project_is_added(cfg, paper):
+    cfg.obsidian.default_project = '  Thesis chapter 3 '
+    assert add_projects(paper, cfg).projects == ['Thesis chapter 3']
+
+
+def test_the_default_project_is_not_added_twice(cfg, paper):
+    cfg.obsidian.default_project = 'thesis'
+    paper.projects = ['Reading group', 'Thesis']
+    assert add_projects(paper, cfg).projects == [
+        'Reading group', 'Thesis']
+
+
+def test_named_projects_replace_the_default(cfg, paper):
+    cfg.obsidian.default_project = 'Thesis'
+    assert add_projects(paper, cfg, ('Reading group', ' Survey ')).projects \
+        == ['Reading group', 'Survey']
+
+
+def test_naming_the_same_project_twice_links_it_once(cfg, paper):
+    assert add_projects(paper, cfg, ('Survey', 'survey')).projects \
+        == ['Survey']
+
+
+def test_a_blank_project_name_falls_back_on_the_default(cfg, paper):
+    cfg.obsidian.default_project = 'Thesis'
+    assert add_projects(paper, cfg, ('  ',)).projects == ['Thesis']
+
+
+def test_a_config_without_obsidian_has_no_default_project(paper):
+    cfg = OmegaConf.create({'backend': 'notion'})
+    assert add_projects(paper, cfg).projects == []
 
 
 def test_upload_paper_hands_the_same_object_to_the_sink(cfg, paper):
@@ -96,3 +135,27 @@ def test_upload_papers_accepts_a_generator(cfg):
         verbose=False, sink=sink, total=3)
 
     assert counts == {'recording': {'created': 3}}
+
+
+@pytest.mark.parametrize('command', ['url', 'id'])
+def test_the_cli_hands_the_named_projects_over(cfg, paper, monkeypatch, command):
+    from click.testing import CliRunner
+    from nora.utils import cli as cli_module
+
+    cfg.obsidian.default_project = 'Thesis'
+    item = type('Item', (), {'to_paper': lambda self: paper})()
+    written = []
+    monkeypatch.setattr(cli_module, 'load_config', lambda: cfg)
+    monkeypatch.setattr(
+        cli_module.ZoteroItem, 'from_url', lambda *a, **k: item)
+    monkeypatch.setattr(
+        cli_module.ZoteroItem, 'from_identifier', lambda *a, **k: item)
+    monkeypatch.setattr(
+        cli_module, 'upload_paper', lambda p, *a, **k: written.append(p))
+
+    result = CliRunner().invoke(cli_module.cli, [
+        command, '1706.03762', '--project', 'Reading group',
+        '--project', 'Survey'])
+
+    assert result.exit_code == 0, result.output
+    assert written[0].projects == ['Reading group', 'Survey']

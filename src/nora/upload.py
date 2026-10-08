@@ -5,7 +5,8 @@ from nora.paper import Paper
 from nora.sinks import get_sinks, SinkError, SKIPPED
 
 
-__all__ = ['resolve_backends', 'upload_paper', 'upload_papers']
+__all__ = [
+    'resolve_backends', 'add_projects', 'upload_paper', 'upload_papers']
 
 
 # Emoji marking each possible outcome in the logs
@@ -35,6 +36,32 @@ def resolve_backends(cfg: OmegaConf, to=None):
     # twice, while `dict.fromkeys` keeps the order that was asked for
     return list(dict.fromkeys(
         str(x).strip().lower() for x in backends if str(x).strip()))
+
+
+def add_projects(paper: Paper, cfg: OmegaConf, projects=()):
+    """Link a paper to the projects you name, or failing that to the
+    `obsidian.default_project` of your config.
+
+    Naming projects replaces the default rather than adding to it: you
+    name one because this paper is the exception. Only meant for a paper
+    you are adding by hand, one at a time: a whole Zotero library, or a
+    sync from Notion, does not all belong to the project you happen to be
+    working on.
+    """
+    names = [str(x).strip() for x in projects or ()]
+    names = [x for x in names if x]
+    if not names:
+        obsidian = cfg.get('obsidian') or {}
+        name = obsidian.get('default_project')
+        name = str(name).strip() if name is not None else ''
+        names = [name] if name and name != '???' else []
+
+    for name in names:
+        known = {str(x).strip().casefold() for x in paper.projects}
+        if name.casefold() not in known:
+            paper.projects = [*paper.projects, name]
+
+    return paper
 
 
 def upload_paper(
