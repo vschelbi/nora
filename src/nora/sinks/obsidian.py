@@ -23,6 +23,11 @@ __all__ = ['ObsidianLibrary', 'ObsidianSink']
 # Obsidian itself and would break the wikilinks pointing at the note
 ILLEGAL_CHARACTERS = re.compile(r'[/\\:*?"<>|#^\[\]]')
 
+# Longest name a note may have. A filename holds at most 255 bytes on
+# macOS, Linux and OneDrive alike, and room is kept for the `.md` and the
+# ` (2)` suffix given to a second paper sharing a title
+MAX_NAME_BYTES = 255 - len('.md') - len(' (999)')
+
 # Stems Windows refuses to use for a file, whatever the extension
 WINDOWS_RESERVED_NAMES = (
     {'CON', 'PRN', 'AUX', 'NUL'}
@@ -188,9 +193,18 @@ class ObsidianLibrary:
         if name.upper() in WINDOWS_RESERVED_NAMES:
             name = f"_{name}"
 
-        max_length = self.cfg.max_filename_length
-        if len(name) > max_length:
-            name = name[:max_length].rsplit(' ', 1)[0].strip(' .-–—,;')
+        # Only ever shortened when it has to be, as the note name is what
+        # Obsidian shows as the title of the paper
+        max_length = self.cfg.get('max_filename_length')
+        if max_length and len(name) > int(max_length):
+            name = _shorten(name, name[:int(max_length)])
+
+        # Counted in bytes, which is what the filesystem counts: a title
+        # in Greek or Chinese takes two or three of them per character
+        encoded = name.encode('utf-8')
+        if len(encoded) > MAX_NAME_BYTES:
+            name = _shorten(
+                name, encoded[:MAX_NAME_BYTES].decode('utf-8', 'ignore'))
 
         return name
 
@@ -702,6 +716,15 @@ def _slugify(text: str):
     """
     text = unicodedata.normalize('NFC', str(text)).strip().lower()
     return re.sub(r'[^\w/-]+', '-', text).strip('-')
+
+
+def _shorten(name: str, cut: str):
+    """Shorten a name to `cut`, its beginning, without leaving half a
+    word at the end of it.
+    """
+    if len(cut) < len(name) and not name[len(cut)].isspace():
+        cut = cut.rsplit(' ', 1)[0] if ' ' in cut else cut
+    return cut.strip(' .-–—,;')
 
 
 def _is_empty(value):

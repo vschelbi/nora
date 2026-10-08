@@ -65,7 +65,11 @@ obsidian:
     # Name given to the note of a paper. Available fields: {title},
     # {year}, {venue}, {first_author}, {authors}, {arxiv}, {doi}, {citekey}
     filename_template: '{title}'
-    max_filename_length: 180
+
+    # Notes are named after the whole title, up to the 255 bytes a
+    # filename may hold on macOS, Linux and OneDrive. Set a number of
+    # characters here to keep names shorter than that
+    max_filename_length:
 
     # What to do when the note of a paper already exists. 'update'
     # refreshes its properties and the NoRA-managed section, and preserves

@@ -31,9 +31,52 @@ def test_note_name_sanitization(obsidian_cfg, raw, expected):
     assert ObsidianLibrary(obsidian_cfg)._note_name(raw) == expected
 
 
-def test_note_name_is_truncated(obsidian_cfg):
+def test_a_long_title_keeps_its_full_length(obsidian_cfg):
+    # Longer than the 180 characters names used to be cut at
+    title = (
+        'A quantitative module of avalanche hazard – comparing forecaster '
+        'assessments of storm and persistent slab avalanche problems with '
+        'information derived from distributed snowpack simulations')
+    assert ObsidianLibrary(obsidian_cfg)._note_name(title) == title
+
+
+def test_note_name_is_truncated_to_what_the_filesystem_allows(obsidian_cfg):
     name = ObsidianLibrary(obsidian_cfg)._note_name('word ' * 200)
-    assert len(name) <= obsidian_cfg.max_filename_length
+    assert len(f"{name} (999).md".encode('utf-8')) <= 255
+    assert name.endswith('word')
+    assert len(name) > 240
+
+
+def test_note_name_counts_bytes_rather_than_characters(obsidian_cfg):
+    # Two bytes per character, so 150 characters already take 300 bytes
+    name = ObsidianLibrary(obsidian_cfg)._note_name('αβγδε ' * 25)
+    assert len(f"{name} (999).md".encode('utf-8')) <= 255
+    assert name.endswith('αβγδε')
+
+
+def test_note_name_can_be_kept_shorter(obsidian_cfg):
+    obsidian_cfg.max_filename_length = 20
+    name = ObsidianLibrary(obsidian_cfg)._note_name('word ' * 200)
+    assert name == 'word word word word'
+
+
+def test_a_word_that_fits_exactly_is_kept(obsidian_cfg):
+    obsidian_cfg.max_filename_length = 14
+    library = ObsidianLibrary(obsidian_cfg)
+    assert library._note_name('word word word word') == 'word word word'
+
+
+@pytest.mark.parametrize('title', [
+    'REEVALUATING THE "10 CONTRIBUTORY FACTORS" DATA-DRIVEN METHODOLOGY',
+    '“Smart” quotes and "straight" ones',
+    '"Starts" with a quote and ends with "one"',
+])
+def test_a_title_with_quotes_is_kept_whole(obsidian_cfg, title):
+    result = ObsidianSink(obsidian_cfg).write(Paper(title=title))
+    frontmatter, _ = ObsidianLibrary._split_note(read(result.ref))
+
+    assert frontmatter['title'] == title
+    assert Path(result.ref).stem == ' '.join(title.replace('"', ' ').split())
 
 
 def test_note_name_normalizes_unicode(obsidian_cfg):
