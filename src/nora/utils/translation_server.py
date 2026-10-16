@@ -221,35 +221,85 @@ def json_to_python(data: Union[str, List, Dict]):
     if 'data' not in data:
         data['data'] = {**data}
 
+    # Anything other than an item, e.g. an unhandled selection request,
+    # would otherwise only fail later when reading its fields
+    if 'itemType' not in data['data']:
+        print(f"❌ The translation server did not return an item:\n{json.dumps(data)}")
+        sys.exit(1)
+
     print("✅ Metadata retrieved successfully!")
 
     return data
 
 
-def translate_from_url(url: str, timeout: float=20):
-    start_server()
-    print(f"ℹ️ Retrieving metadata for URL: {url} ...")
+def post_to_server(
+        endpoint: str,
+        data: str,
+        content_type: str="text/plain",
+        timeout: float=20):
+    """POST to the translation server and return the response body
+    along with its HTTP status code.
+    """
     try:
         out = subprocess.check_output([
-            'curl', '-s', '-S', '-d', url, '-m', f'{timeout}', '-H', "Content-Type: text/plain", f"{SERVER_IP}/web"
+            'curl', '-s', '-S', '-d', data, '-m', f'{timeout}', '-H', f"Content-Type: {content_type}",
+            '-w', '\n%{http_code}', f"{SERVER_IP}/{endpoint}"
         ])
     except subprocess.CalledProcessError:
         print("❌ Failed to contact the translation server. Please check your internet connection or try again.")
         sys.exit(1)
-    return json_to_python(out)
+    body, _, status = out.decode().rpartition('\n')
+    return body, int(status)
+
+
+def select_item(choices: Dict[str, str]):
+    """Pick one of the items the translation server found on a page,
+    the way the Zotero connector asks in the browser. A single choice
+    needs no asking.
+    """
+    if len(choices) == 1:
+        key, title = next(iter(choices.items()))
+        print(f"ℹ️ The page points to another item, using it: {title}")
+        return {key: title}
+
+    print("ℹ️ The page lists several items:")
+    keys = list(choices)
+    for i, key in enumerate(keys, start=1):
+        print(f"   {i}. {choices[key]}")
+    while True:
+        try:
+            answer = input(f"👉 Which one should be added? [1-{len(keys)}] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n❌ No item selected.")
+            sys.exit(1)
+        if answer.isdigit() and 1 <= int(answer) <= len(keys):
+            key = keys[int(answer) - 1]
+            return {key: choices[key]}
+
+
+def translate_from_url(url: str, timeout: float=20):
+    start_server()
+    print(f"ℹ️ Retrieving metadata for URL: {url} ...")
+    body, status = post_to_server('web', url, timeout=timeout)
+
+    # 300 Multiple Choices: the page is a list of items rather than an
+    # item, e.g. a preprint pointing to its published version. The
+    # server waits for the selection to be sent back with the session
+    if status == 300:
+        choices = json.loads(body)
+        choices['items'] = select_item(choices['items'])
+        body, status = post_to_server(
+            'web', json.dumps(choices), content_type="application/json",
+            timeout=timeout)
+
+    return json_to_python(body)
 
 
 def translate_from_identifier(identifier: str, timeout: float=20):
     start_server()
     print(f"ℹ️ Retrieving metadata for identifier: {identifier} ...")
-    try:
-        out = subprocess.check_output([
-            'curl', '-s', '-S', '-d', identifier, '-m', f'{timeout}', '-H', "Content-Type: text/plain", f"{SERVER_IP}/search"
-        ])
-    except subprocess.CalledProcessError:
-        print("❌ Failed to contact the translation server. Please check your internet connection or try again.")
-        sys.exit(1)
-    return json_to_python(out)
+    body, _ = post_to_server('search', identifier, timeout=timeout)
+    return json_to_python(body)
 
 
 def get_node_version():
