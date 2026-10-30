@@ -4,6 +4,7 @@ import sys
 import yaml
 import tempfile
 import unicodedata
+from dataclasses import replace
 from pathlib import Path
 from markdownify import markdownify
 from omegaconf import OmegaConf
@@ -12,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 from nora.paper import Paper
 from nora.sinks.base import (
     Sink, SinkError, WriteResult, CREATED, SKIPPED, UPDATED)
+from nora.utils.authors import alias_key, canonical_authors
 from nora.utils.keys import sanity_check_config
 
 
@@ -138,6 +140,9 @@ class ObsidianLibrary:
         # Recognize already-uploaded papers wherever they now live and
         # whatever they are now called
         self._index = self._build_index()
+
+        # Recognize an author under any name you gave their note
+        self._author_aliases = self._build_author_aliases()
 
     # ------------------------------------------------------------------
     #  Paths and note names
@@ -313,6 +318,7 @@ class ObsidianLibrary:
             doi = frontmatter.get(keys['doi'])
             arxiv = frontmatter.get(keys['arxiv'])
             title = frontmatter.get(keys['name'])
+            url = frontmatter.get(keys['url'])
             ids = [
                 frontmatter.get(ID_KEY),
                 f"doi:{str(doi).strip().lower()}" if doi else None,
@@ -323,12 +329,48 @@ class ObsidianLibrary:
                 # for such a paper, so two distinct papers that happen to
                 # share a title still get a note each as long as either
                 # knows its own DOI
-                _title_id(title) if title else None]
+                _title_id(title),
+                _url_id(url)]
             for nora_id in ids:
                 if nora_id and nora_id not in index:
                     index[nora_id] = path
 
         return index
+
+    def _build_author_aliases(self):
+        """Map every name in the `aliases` of a People note to that note.
+
+        Obsidian's own `aliases` property is where you record that `J.
+        Gaume` and `Johan Gaume` are the same person, so NoRA reads it
+        rather than asking you to say it twice. Without this, a paper
+        re-uploaded from a source spelling the name the other way would
+        link the author you merged away straight back into existence.
+        """
+        aliases = {}
+        folder = self._folder('people')
+        if not self.cfg.get('author_aliases_from_notes', True) \
+                or not folder.is_dir():
+            return aliases
+
+        for path in sorted(folder.glob('*.md')):
+            names = self._read_frontmatter(path).get('aliases') or []
+            if isinstance(names, str):
+                names = [names]
+            for name in [path.stem, *names]:
+                if not isinstance(name, str) or not name.strip():
+                    continue
+                known = aliases.setdefault(alias_key(name), path.stem)
+                if known != path.stem:
+                    print(
+                        f"⚠️ '{name}' is an alias of both '{known}' and "
+                        f"'{path.stem}' in your People notes, using '{known}'")
+
+        return aliases
+
+    def canonical_authors(self, authors: List[str]):
+        """The authors of a paper under the names of their People notes.
+        """
+        return canonical_authors(authors, self._author_aliases)
 
     def find_note(self, paper: Paper):
         """The note of an already-uploaded paper, or None. Any identity the
@@ -349,7 +391,9 @@ class ObsidianLibrary:
         # And under its title, as `_build_index` does, so that a paper with
         # no identifier can still find this note later in the same run.
         # `setdefault`, so it never takes a title another note claimed
-        self._index.setdefault(_title_id(paper.title), path)
+        for nora_id in (_title_id(paper.title), _url_id(paper.url)):
+            if nora_id:
+                self._index.setdefault(nora_id, path)
 
     # ------------------------------------------------------------------
     #  Writing
@@ -568,6 +612,13 @@ class ObsidianLibrary:
         """
         ids = _nora_ids(paper)
 
+        # Nothing to recognize the paper by on the next upload, which would
+        # then get a note of its own every time
+        if not ids:
+            raise SinkError(
+                "the paper has no title, DOI, arXiv id or url to be "
+                "recognized by")
+
         # A paper already uploaded may since have been renamed, or the
         # filename template may have changed, so the identities recorded
         # in the frontmatter are what we search on first
@@ -688,6 +739,9 @@ class ObsidianSink(Sink):
         return self.library.find_note(paper) is not None
 
     def write(self, paper: Paper):
+        paper = replace(
+            paper, authors=self.library.canonical_authors(paper.authors))
+
         try:
             # Authors, venues and topics get a note of their own, so that
             # Obsidian's backlinks and graph reproduce the relations of
@@ -802,7 +856,8 @@ def _nora_id(paper: Paper):
     """Stable identity of a paper, recorded in the frontmatter so that
     re-uploading recognizes it however its note has been renamed.
     """
-    return _nora_ids(paper)[0]
+    ids = _nora_ids(paper)
+    return ids[0] if ids else None
 
 
 def _nora_ids(paper: Paper):
@@ -821,18 +876,31 @@ def _nora_ids(paper: Paper):
         ids.append(f"arxiv:{paper.arxiv_id.strip().lower()}")
 
     # A title is only ever an identity of last resort: two distinct papers
-    # may share one, so it is trusted only when there is nothing better
+    # may share one, so it is trusted only when there is nothing better.
+    # The url comes after it, so that a note first identified by its title
+    # keeps that identity, and is only the identity of a paper whose title
+    # leaves nothing once slugified
     if not ids:
-        ids.append(_title_id(paper.title))
+        ids = [x for x in (_title_id(paper.title), _url_id(paper.url)) if x]
 
     return ids
 
 
 def _title_id(title):
-    """The identity a paper has when it has no identifier of its own.
+    """The identity a paper has when it has no identifier of its own, or
+    None for a title with nothing in it to slugify. A bare `title:` would
+    be shared by every such paper, and each would overwrite the last.
     """
     slug = re.sub(r'[^\w]+', '-', str(title or '').lower()).strip('-')
-    return f"title:{slug}"
+    return f"title:{slug}" if slug else None
+
+
+def _url_id(url):
+    """The identity a paper has from its url, or None when it has none.
+    A trailing slash is not part of what the url points at.
+    """
+    url = str(url or '').strip().rstrip('/').lower()
+    return f"url:{url}" if url else None
 
 
 def _notes_to_markdown(notes: str, notes_format: str):

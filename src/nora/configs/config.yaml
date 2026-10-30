@@ -107,6 +107,12 @@ obsidian:
     # ignore it
     default_project:
 
+    # Read the `aliases` property of your People notes as more names for
+    # that person: an author spelled 'J. Gaume' by one source is linked to
+    # 'Johan Gaume' if that note lists 'J. Gaume' among its aliases. Adds
+    # to the top-level `author_aliases` below
+    author_aliases_from_notes: True
+
     # If you happen to modify your field names in Obsidian, update the
     # following frontmatter keys
     paper_keys:
@@ -161,3 +167,14 @@ venues:
     'transactions on graphics': 'TOG'
     'international conference on computer graphics and interactive techniques': 'SIGGRAPH'
     'winter conference on applications of computer vision': 'WACV'
+
+# The same person is often spelled differently by different sources, and
+# would get two People notes - or two Notion pages - for it. Name the
+# variants here, and every backend writes the canonical name instead.
+# Either form works, and both may be mixed:
+#     author_aliases:
+#         J. Gaume: Johan Gaume
+#         Håvard Boutera Toft: [Håvard B. Toft, Håvard Toft]
+# Case and spacing are ignored. Can also be the path of a YAML file
+# holding the same mapping: author_aliases: ~/.nora/authors.yaml
+author_aliases: {}

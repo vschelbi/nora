@@ -776,3 +776,128 @@ def test_a_vault_path_pointing_at_a_file_exits(cfg, tmp_path):
 def test_a_missing_vault_path_gives_the_configure_message(cfg):
     with pytest.raises(SystemExit):
         ObsidianLibrary(cfg.obsidian)
+
+
+# ----------------------------------------------------------------------
+#  Identity of a paper without identifiers
+# ----------------------------------------------------------------------
+def test_a_title_id_is_never_bare():
+    from nora.sinks.obsidian import _title_id
+    assert _title_id('') is None
+    assert _title_id(None) is None
+    assert _title_id('###') is None
+    assert _title_id('A Title') == 'title:a-title'
+
+
+def test_untitled_papers_do_not_collapse_onto_one_note(obsidian_cfg):
+    # Nothing in the title survives slugification, so only the urls tell
+    # these apart. Both used to be `title:` and the second overwrote the
+    # first
+    sink = ObsidianSink(obsidian_cfg)
+    first = sink.write(Paper(title='###', url='https://example.org/item/1'))
+    second = sink.write(Paper(title='###', url='https://example.org/item/2'))
+
+    assert first.status == CREATED
+    assert second.status == CREATED
+    assert first.ref != second.ref
+    frontmatter, _ = ObsidianLibrary._split_note(read(first.ref))
+    assert frontmatter[ID_KEY] == 'url:https://example.org/item/1'
+
+
+def test_a_paper_with_nothing_to_be_recognized_by_is_refused(obsidian_cfg):
+    from nora.sinks import SinkError
+    with pytest.raises(SinkError):
+        ObsidianSink(obsidian_cfg).write(Paper(title='###'))
+    assert not list((Path(obsidian_cfg.vault_path) / 'Papers').glob('*.md'))
+
+
+def test_a_titled_paper_keeps_its_title_identity(obsidian_cfg):
+    # A note created before urls were an identity was recorded under its
+    # title, and gaining a url must not change that
+    result = ObsidianSink(obsidian_cfg).write(
+        Paper(title='Snow Slabs', url='https://example.org/snow'))
+    frontmatter, _ = ObsidianLibrary._split_note(read(result.ref))
+    assert frontmatter[ID_KEY] == 'title:snow-slabs'
+
+
+def test_a_paper_without_identifiers_finds_its_note_by_url(obsidian_cfg):
+    known = Paper(
+        title='Modeling Crack Arrest', doi='10.1029/2025JF008470',
+        url='https://doi.org/10.1029/2025JF008470/')
+    path = ObsidianSink(obsidian_cfg).write(known).ref
+
+    # The title differs - a source abbreviating it, say - but the url is
+    # the same page
+    result = ObsidianSink(obsidian_cfg).write(Paper(
+        title='Modeling crack arrest in snow',
+        url='https://doi.org/10.1029/2025JF008470'))
+
+    assert result.status == UPDATED
+    assert Path(result.ref) == Path(path)
+
+
+# ----------------------------------------------------------------------
+#  Author aliases from People notes
+# ----------------------------------------------------------------------
+def write_person(obsidian_cfg, name, aliases):
+    folder = Path(obsidian_cfg.vault_path) / 'People'
+    folder.mkdir(parents=True, exist_ok=True)
+    data = yaml.safe_dump(
+        {'name': name, 'aliases': aliases, 'type': 'person'},
+        allow_unicode=True)
+    (folder / f"{name}.md").write_text(f"---\n{data}---\n", encoding='utf-8')
+
+
+def test_aliases_of_a_people_note_are_linked_to_it(obsidian_cfg):
+    write_person(obsidian_cfg, 'Johan Gaume', ['J. Gaume', 'Gaume J.'])
+
+    result = ObsidianSink(obsidian_cfg).write(
+        Paper(title='Crack propagation', authors=['J. Gaume', 'X Y']))
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(result.ref))
+    assert frontmatter['authors'] == [
+        '[[People/Johan Gaume|Johan Gaume]]', '[[People/X Y|X Y]]']
+    people = Path(obsidian_cfg.vault_path) / 'People'
+    assert not (people / 'J. Gaume.md').exists()
+
+
+def test_a_re_upload_does_not_undo_a_merge(obsidian_cfg):
+    # You merged 'Håvard Toft' into 'Håvard Boutera Toft' and kept the old
+    # name as an alias. The source still spells it the old way
+    paper = Paper(title='Avalanche terrain', authors=['Håvard Toft'],
+                  doi='10.1000/terrain')
+    ObsidianSink(obsidian_cfg).write(paper)
+    people = Path(obsidian_cfg.vault_path) / 'People'
+    (people / 'Håvard Toft.md').unlink()
+    write_person(obsidian_cfg, 'Håvard Boutera Toft', ['Håvard Toft'])
+
+    result = ObsidianSink(obsidian_cfg).write(paper)
+
+    frontmatter, _ = ObsidianLibrary._split_note(read(result.ref))
+    assert frontmatter['authors'] == [
+        '[[People/Håvard Boutera Toft|Håvard Boutera Toft]]']
+    assert not (people / 'Håvard Toft.md').exists()
+
+
+def test_a_single_alias_string_is_read_too(obsidian_cfg):
+    write_person(obsidian_cfg, 'Johan Gaume', 'J. Gaume')
+    library = ObsidianLibrary(obsidian_cfg)
+    assert library.canonical_authors(['J. Gaume']) == ['Johan Gaume']
+
+
+def test_people_note_aliases_can_be_turned_off(obsidian_cfg):
+    write_person(obsidian_cfg, 'Johan Gaume', ['J. Gaume'])
+    obsidian_cfg.author_aliases_from_notes = False
+    library = ObsidianLibrary(obsidian_cfg)
+    assert library.canonical_authors(['J. Gaume']) == ['J. Gaume']
+
+
+def test_an_alias_claimed_by_two_notes_is_warned_about(obsidian_cfg, capsys):
+    write_person(obsidian_cfg, 'Anna Muster', ['A. Muster'])
+    write_person(obsidian_cfg, 'Andrea Muster', ['A. Muster'])
+
+    library = ObsidianLibrary(obsidian_cfg)
+
+    # The first in alphabetical order wins, the same on every run
+    assert library.canonical_authors(['A. Muster']) == ['Andrea Muster']
+    assert "'A. Muster' is an alias of both" in capsys.readouterr().out
