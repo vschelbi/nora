@@ -159,3 +159,64 @@ def test_the_cli_hands_the_named_projects_over(cfg, paper, monkeypatch, command)
 
     assert result.exit_code == 0, result.output
     assert written[0].projects == ['Reading group', 'Survey']
+
+
+@pytest.mark.parametrize('title', ['', '   ', None])
+def test_a_paper_without_a_title_is_refused(cfg, title, capsys):
+    # What the translation server returns for a page rendered in the
+    # browser. Every such paper used to overwrite the same note
+    sink = RecordingSink()
+    paper = Paper(title=title, url='https://www.dora.lib4ri.ch/wsl/item/x')
+
+    results = upload_paper(paper, cfg, sink=sink)
+
+    assert sink.written == []
+    assert results == {'recording': None}
+    out = capsys.readouterr().out
+    assert 'No title found' in out
+    assert 'nora id <doi>' in out
+
+
+def test_an_untitled_paper_does_not_interrupt_the_others(cfg):
+    papers = [Paper(title='Paper 1'), Paper(title=''), Paper(title='Paper 3')]
+    sink = RecordingSink()
+
+    counts = upload_papers(papers, cfg, verbose=False, sink=sink, total=3)
+
+    assert [p.title for p in sink.written] == ['Paper 1', 'Paper 3']
+    assert counts == {'recording': {'created': 2, 'failed': 1}}
+
+
+def test_author_aliases_are_applied_before_any_backend(cfg):
+    cfg.author_aliases = {
+        'J. Gaume': 'Johan Gaume',
+        'Håvard Boutera Toft': ['Håvard B. Toft']}
+    paper = Paper(title='A', authors=['J. Gaume', 'Håvard B. Toft', 'X Y'])
+    notion = RecordingSink(name='notion')
+    obsidian = RecordingSink(name='obsidian')
+
+    upload_paper(paper, cfg, verbose=False, sink=[notion, obsidian])
+
+    expected = ['Johan Gaume', 'Håvard Boutera Toft', 'X Y']
+    assert notion.written[0].authors == expected
+    assert obsidian.written[0].authors == expected
+
+    # The caller's paper is left as the source gave it
+    assert paper.authors == ['J. Gaume', 'Håvard B. Toft', 'X Y']
+
+
+def test_author_aliases_apply_to_a_whole_upload(cfg):
+    cfg.author_aliases = {'J. Gaume': 'Johan Gaume'}
+    sink = RecordingSink()
+
+    upload_papers(
+        [Paper(title=f"Paper {i}", authors=['J. Gaume']) for i in (1, 2)],
+        cfg, verbose=False, sink=sink)
+
+    assert [p.authors for p in sink.written] == [['Johan Gaume']] * 2
+
+
+def test_the_shipped_config_has_no_author_aliases(cfg):
+    # Every user starts from it, so it must not rename anybody
+    assert not cfg.author_aliases
+    assert cfg.obsidian.author_aliases_from_notes is True

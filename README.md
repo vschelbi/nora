@@ -435,6 +435,11 @@ From an identifier (DOI, ISBN, PMID, arXiv ID):
 nora id 2204.07548
 ```
 
+Some pages, such as institutional repositories built as single-page apps,
+only render in the browser and give `nora url` no title to read. Such a
+paper is refused rather than written as an untitled note: add it from its
+DOI with `nora id` instead.
+
 ### Uploading your entire Zotero library to NoRA
 
 ```bash
@@ -791,6 +796,29 @@ behavior, your may do so by specifying them in your `~/.nora/user.yaml`:
 zotero:
     ignored_collections: ['collection name 1', 'collection name 2']
 ````
+</details>
+
+<details>
+<summary><b>
+Merging the spellings of an author</b></summary>
+
+Sources rarely agree on how to spell a name: `J. Gaume` from one,
+`Johan Gaume` from another. Each spelling would get a People note — or a
+Notion page — of its own. Name the variants in your `~/.nora/user.yaml`,
+and every backend writes the canonical name instead:
+```yaml
+author_aliases:
+    J. Gaume: Johan Gaume                                   # variant: canonical
+    Håvard Boutera Toft: [Håvard B. Toft, Håvard Toft]      # canonical: [variants]
+```
+Case and spacing are ignored. A long list can live in a file of its own,
+`author_aliases: ~/.nora/authors.yaml`, holding the same mapping.
+
+In Obsidian, the `aliases` property of a People note counts too: once
+`Johan Gaume.md` lists `J. Gaume` among its aliases, a paper by `J. Gaume`
+links to `Johan Gaume`. This is what keeps a merge you made by hand from
+being undone the next time the paper is uploaded. Set
+`obsidian.author_aliases_from_notes: False` to turn it off.
 </details>
 
 <br>

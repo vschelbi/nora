@@ -1,8 +1,10 @@
+from dataclasses import replace
 from omegaconf import OmegaConf
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from nora.paper import Paper
 from nora.sinks import get_sinks, SinkError, SKIPPED
+from nora.utils.authors import canonical_authors, load_author_aliases
 
 
 __all__ = [
@@ -73,7 +75,9 @@ def upload_paper(
     """Write a single paper to every configured backend. Returns what
     each of them did, keyed by backend name.
     """
-    return _write_all(paper, _resolve_sinks(cfg, to, sink), verbose=verbose)
+    return _write_all(
+        paper, _resolve_sinks(cfg, to, sink), verbose=verbose,
+        aliases=load_author_aliases(cfg.get('author_aliases')))
 
 
 def upload_papers(
@@ -90,6 +94,7 @@ def upload_papers(
     Returns the tally of each backend, keyed by backend name.
     """
     sinks = _resolve_sinks(cfg, to, sink)
+    aliases = load_author_aliases(cfg.get('author_aliases'))
 
     counts = {x.name: {} for x in sinks}
     for i, paper in enumerate(papers):
@@ -97,7 +102,8 @@ def upload_papers(
             position = f"[{i + 1}/{total}]" if total else f"[{i + 1}]"
             print(position, end=' ')
 
-        for name, result in _write_all(paper, sinks, verbose=verbose).items():
+        results = _write_all(paper, sinks, verbose=verbose, aliases=aliases)
+        for name, result in results.items():
             status = result.status if result is not None else 'failed'
             counts[name][status] = counts[name].get(status, 0) + 1
 
@@ -121,9 +127,32 @@ def _resolve_sinks(cfg: OmegaConf, to=None, sink=None):
     return list(sink) if isinstance(sink, (list, tuple)) else [sink]
 
 
-def _write_all(paper: Paper, sinks: List, verbose: bool=True):
+def _write_all(
+        paper: Paper,
+        sinks: List,
+        verbose: bool=True,
+        aliases: Dict[str, str]=None):
     """Write one paper to each backend in turn, and report every outcome.
+
+    A paper without a title is refused outright, by every backend at once.
+    It is what the Zotero translation server returns for a page that only
+    renders in the browser, and with no DOI or arXiv id either, nothing
+    would tell it apart from the next untitled one.
     """
+    if not (paper.title or '').strip():
+        where = f" at {paper.url}" if paper.url else ''
+        print(f"❌ No title found for the paper{where}, nothing was written")
+        print(
+            "👉 The page is probably rendered in the browser. Add the paper "
+            "from its DOI instead: `nora id <doi>`")
+        return {x.name: None for x in sinks}
+
+    # Every backend gets the same names for the authors, whichever way the
+    # source happened to spell them
+    if aliases:
+        paper = replace(
+            paper, authors=canonical_authors(paper.authors, aliases))
+
     if verbose:
         print(f"⬆️ Uploading '{paper.title}'...")
 
